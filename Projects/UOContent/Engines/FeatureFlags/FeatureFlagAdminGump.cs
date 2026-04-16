@@ -129,7 +129,73 @@ public sealed class FeatureFlagAdminGump : DynamicGump
         builder.AddHtml(155, 462, 60, 20, "Refresh".Color(GumpTextColors.White));
     }
 
+    // Custom Helper for Formatting and improved BuildFlagsPage
+    private static string FormatFlagKey(string key)
+    {
+        if (string.IsNullOrWhiteSpace(key))
+        {
+            return string.Empty;
+        }
+
+        var parts = key.Split('_');
+
+        for (var i = 0; i < parts.Length; i++)
+        {
+            if (parts[i].Length > 0)
+            {
+                parts[i] = char.ToUpper(parts[i][0]) + parts[i][1..];
+            }
+        }
+
+        return string.Join(" ", parts);
+    }
+
     private void BuildFlagsPage(ref DynamicGumpBuilder builder)
+    {
+        builder.AddHtml(20, 80, 170, 20, "Flag".Color(GumpTextColors.White));
+        builder.AddHtml(220, 80, 120, 20, "Category".Color(GumpTextColors.White));
+        builder.AddHtml(360, 80, 280, 20, "Description".Color(GumpTextColors.White));
+        builder.AddHtml(690, 80, 60, 20, "Status".Color(GumpTextColors.White));
+
+        var flags = new List<FeatureFlag>(FeatureFlagManager.GetAllFlags());
+        flags.Sort((a, b) =>
+        {
+            var cmp = a.Category.InsensitiveCompare(b.Category);
+            return cmp != 0 ? cmp : a.Key.InsensitiveCompare(b.Key);
+        });
+
+        var startIndex = _pageIndex * FlagsPerPage;
+        var endIndex = Math.Min(startIndex + FlagsPerPage, flags.Count);
+        var totalPages = Math.Max(1, (int)Math.Ceiling(flags.Count / (double)FlagsPerPage));
+
+        _displayedCount = 0;
+        var y = 105;
+
+        for (var i = startIndex; i < endIndex; i++)
+        {
+            var flag = flags[i];
+            _displayedFlags[_displayedCount] = flag;
+
+            var statusColor = flag.Enabled ? GumpTextColors.Green : GumpTextColors.Red;
+            var displayName = FormatFlagKey(flag.Key);
+
+            builder.AddButton(20, y, flag.Enabled ? 2154 : 2151, flag.Enabled ? 2151 : 2154, 1000 + _displayedCount);
+            builder.AddHtml(60, y + 3, 150, 20, displayName.Color(GumpTextColors.White));
+            builder.AddHtml(220, y + 3, 120, 20, (flag.Category ?? "").Color(GumpTextColors.LightGray));
+            builder.AddHtml(360, y + 3, 300, 20, (flag.Description ?? "").Color(GumpTextColors.LightGray));
+            builder.AddHtml(690, y + 3, 60, 20, (flag.Enabled ? "ON" : "OFF").Color(statusColor));
+
+            _displayedCount++;
+            y += FlagRowHeight;
+        }
+
+        AddPagination(ref builder, totalPages);
+    }
+
+
+    //
+
+    /*private void BuildFlagsPage(ref DynamicGumpBuilder builder)
     {
         builder.AddHtml(20, 80, 150, 20, "Flag".Color(GumpTextColors.White));
         builder.AddHtml(180, 80, 150, 20, "Category".Color(GumpTextColors.White));
@@ -166,7 +232,7 @@ public sealed class FeatureFlagAdminGump : DynamicGump
         }
 
         AddPagination(ref builder, totalPages);
-    }
+    }*/
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private void BuildBlockPage(

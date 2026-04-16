@@ -58,4 +58,7 @@
             <_Parameter1>UOContent.Tests</_Parameter1>
         </AssemblyAttribute>
     </ItemGroup>
+    <ItemGroup>
+      <Folder Include="Custom\Systems\Template Saver\Template Presets\" />
+    </ItemGroup>
 </Project>

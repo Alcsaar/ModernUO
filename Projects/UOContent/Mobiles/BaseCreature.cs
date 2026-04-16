@@ -25,6 +25,9 @@ using Server.Spells.Sixth;
 using Server.Spells.Spellweaving;
 using Server.Targeting;
 
+using Server.Engines.RelativeThreatSystem;
+using Server.Systems.FeatureFlags;
+
 namespace Server.Mobiles
 {
     /// <summary>
@@ -2909,7 +2912,7 @@ namespace Server.Mobiles
             }
         }
 
-        public override void OnSingleClick(Mobile from)
+        /*public override void OnSingleClick(Mobile from)
         {
             if (Controlled && Commandable)
             {
@@ -2929,6 +2932,59 @@ namespace Server.Mobiles
                 }
 
                 PrivateOverheadMessage(MessageType.Regular, 0x3B2, number, from.NetState);
+            }
+
+            base.OnSingleClick(from);
+        }*/
+
+        // Modification to display relative threat level
+        public override void OnSingleClick(Mobile from)
+        {
+            if (
+                ContentFeatureFlags.RelativeThreatDisplay &&
+                !Controlled &&
+                from != null &&
+                !from.Deleted
+            )
+            {
+                var threatLabel = RelativeThreatService.GetThreatLabelOnly(from, this);
+                var threatHue = RelativeThreatService.GetThreatHue(threatLabel);
+
+                if (!string.IsNullOrEmpty(threatLabel))
+                {
+                    PrivateOverheadMessage(
+                        MessageType.Regular,
+                        threatHue,
+                        false,
+                        $"({threatLabel})",
+                        from.NetState
+                    );
+                }
+            }
+
+            if (Controlled && Commandable)
+            {
+                int number;
+
+                if (Summoned)
+                {
+                    number = 1049646; // (summoned)
+                }
+                else if (IsBonded)
+                {
+                    number = 1049608; // (bonded)
+                }
+                else
+                {
+                    number = 502006; // (tame)
+                }
+
+                PrivateOverheadMessage(
+                    MessageType.Regular,
+                    0x3B2,
+                    number,
+                    from.NetState
+                );
             }
 
             base.OnSingleClick(from);
