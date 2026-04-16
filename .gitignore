@@ -17,6 +17,7 @@
 Distribution/Configuration/FeatureFlags/
 Distribution/Configuration/TemplateSaver/
 Distribution/Configuration/CreatureDifficultySystem/
+Distribution/Configuration/
 /Distribution/Logs
 /Distribution/Archives
 /Distribution/Backups
