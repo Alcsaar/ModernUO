@@ -4,13 +4,12 @@ using System.IO;
 using Server.Accounting;
 using Server.Json;
 using Server.Mobiles;
-using Server.Systems.FeatureFlags;
+using Server.Custom.Systems.CustomFeatureFlags;
 
 namespace Server.Custom.Systems.TemplateSaver;
 
 public static class TemplateSaverManager
 {
-    public const string FeatureFlagKey = "template_saves";
     public const int DefaultTemplateSlots = 2;
     public const int MaxDeletedHistoryPerCharacter = 100;
     public const int MaxDeletedArchiveEntries = 5000;
@@ -46,14 +45,6 @@ public static class TemplateSaverManager
         _state = JsonConfig.Deserialize<TemplateSaverState>(SavePath) ?? new TemplateSaverState();
         _deletedArchive = JsonConfig.Deserialize<DeletedTemplateArchiveState>(DeletedArchivePath) ?? new DeletedTemplateArchiveState();
 
-        FeatureFlagManager.CreateOrUpdateFlag(
-            FeatureFlagKey,
-            "Char Template Saving",
-            "Player Systems",
-            true,
-            "System"
-        );
-
         _initialized = true;
     }
 
@@ -73,7 +64,7 @@ public static class TemplateSaverManager
             return true;
         }
 
-        if (!FeatureFlagManager.IsEnabled(FeatureFlagKey))
+        if (!CustomFeatureFlagManager.IsEnabled(CustomFeatureFlagKeys.TemplateSaver))
         {
             message = "This system is currently disabled.";
             return false;

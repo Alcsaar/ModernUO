@@ -3,6 +3,7 @@ using Server.Mobiles;
 using Server.Targeting;
 
 namespace Server.Engines.RelativeThreatSystem;
+using Server.Custom.Systems.CustomFeatureFlags;
 
 public static class RelativeThreatCommands
 {
@@ -15,6 +16,13 @@ public static class RelativeThreatCommands
     [Description("Targets a creature and displays its relative threat compared to you.")]
     public static void GetThreat_OnCommand(CommandEventArgs e)
     {
+
+        if (!CustomFeatureFlagManager.IsEnabled(CustomFeatureFlagKeys.RelativeThreat))
+        {
+            e.Mobile.SendMessage("Relative Threat is currently disabled.");
+            return;
+        }
+
         e.Mobile.SendMessage("Target a creature to evaluate its threat.");
         e.Mobile.Target = new GetThreatTarget();
     }
@@ -27,6 +35,12 @@ public static class RelativeThreatCommands
 
         protected override void OnTarget(Mobile from, object targeted)
         {
+            if (!CustomFeatureFlagManager.IsEnabled(CustomFeatureFlagKeys.RelativeThreat))
+            {
+                from.SendMessage("Relative Threat is currently disabled.");
+                return;
+            }
+
             if (from == null || from.Deleted)
             {
                 return;

@@ -26,7 +26,7 @@ using Server.Spells.Spellweaving;
 using Server.Targeting;
 
 using Server.Engines.RelativeThreatSystem;
-using Server.Systems.FeatureFlags;
+using Server.Custom.Systems.CustomFeatureFlags;
 
 namespace Server.Mobiles
 {
@@ -868,7 +868,20 @@ namespace Server.Mobiles
         public virtual bool IsHouseSummonable => false;
 
         public virtual bool AutoDispel => false;
-        public virtual double AutoDispelChance => Core.SE ? .10 : 1.0;
+        //public virtual double AutoDispelChance => Core.SE ? .10 : 1.0;
+
+        public virtual double AutoDispelChance
+        {
+            get
+            {
+                if (!CustomFeatureFlagManager.IsEnabled(CustomFeatureFlagKeys.CreatureAutoDispel))
+                {
+                    return 0.0;
+                }
+
+                return Core.SE ? 0.10 : 1.0;
+            }
+        }
 
         public virtual bool IsScaryToPets => false;
         public virtual bool IsScaredOfScaryThings => true;
@@ -2941,10 +2954,10 @@ namespace Server.Mobiles
         public override void OnSingleClick(Mobile from)
         {
             if (
-                ContentFeatureFlags.RelativeThreatDisplay &&
-                !Controlled &&
-                from != null &&
-                !from.Deleted
+                    !Controlled &&
+                    from != null &&
+                    !from.Deleted &&
+                    CustomFeatureFlagManager.IsEnabled(CustomFeatureFlagKeys.RelativeThreat)
             )
             {
                 var threatLabel = RelativeThreatService.GetThreatLabelOnly(from, this);

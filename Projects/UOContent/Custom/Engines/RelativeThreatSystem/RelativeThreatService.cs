@@ -1,5 +1,6 @@
 using System;
 using Server.Custom.Engines.CreatureDifficultySystem;
+using Server.Custom.Systems.CustomFeatureFlags;
 using Server.Mobiles;
 
 namespace Server.Engines.RelativeThreatSystem;
@@ -8,6 +9,11 @@ public static class RelativeThreatService
 {
     public static CreatureThreatResult GetThreat(Mobile player, BaseCreature creature)
     {
+        if (!CustomFeatureFlagManager.IsEnabled(CustomFeatureFlagKeys.RelativeThreat))
+        {
+            return new CreatureThreatResult("Fair", 1.0, 1.0, 1.0);
+        }
+
         if (player == null || player.Deleted || creature == null || creature.Deleted)
         {
             return new CreatureThreatResult("Fair", 1.0, 1.0, 1.0);
@@ -39,7 +45,7 @@ public static class RelativeThreatService
 
         if (ratio < 1.00)
         {
-            return "Fair";
+            return "Challenging";
         }
 
         if (ratio < 1.30)
@@ -213,6 +219,11 @@ public static class RelativeThreatService
 
     public static string GetThreatLabelOnly(Mobile player, BaseCreature creature)
     {
+        if (!CustomFeatureFlagManager.IsEnabled(CustomFeatureFlagKeys.RelativeThreat))
+        {
+            return "Fair";
+        }
+
         return GetThreat(player, creature).ThreatLabel;
     }
 
@@ -222,7 +233,7 @@ public static class RelativeThreatService
         {
             "Trivial" => 954,
             "Minor" => 916,
-            "Fair" => 68,
+            "Challenging" => 68,
             "Dangerous" => 93,
             "Deadly" => 38,
             "Overwhelming" => 32,
