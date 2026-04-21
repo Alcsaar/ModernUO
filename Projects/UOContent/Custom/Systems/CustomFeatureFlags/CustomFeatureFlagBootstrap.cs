@@ -28,6 +28,14 @@ public static class CustomFeatureFlagBootstrap
             "Auto Dispel",
             "Combat AI",
             defaultEnabled: false
+
         );
+        CustomFeatureFlagManager.Register(
+            CustomFeatureFlagKeys.TravelCodex,
+            "Travel Codex",
+            "Non-magery codex travel system",
+            "Custom Systems",
+            defaultEnabled: true
+);
     }
 }
