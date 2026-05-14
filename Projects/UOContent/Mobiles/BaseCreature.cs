@@ -3472,6 +3472,10 @@ namespace Server.Mobiles
 
             base.OnDeath(c);
 
+            /* BEGIN CUSTOM ACTIVITY TRACKING: register original monster corpse gold for anti-duplication loot tracking */
+            ActivityTrackingService.RegisterMonsterCorpseGold(this, c);
+            /* END CUSTOM ACTIVITY TRACKING */
+
             if (DeleteCorpseOnDeath)
             {
                 c.Delete();

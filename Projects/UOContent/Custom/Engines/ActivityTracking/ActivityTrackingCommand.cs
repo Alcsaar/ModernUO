@@ -156,8 +156,7 @@ public static class ActivityTrackingCommand
     /* BEGIN ACTIVITY TRACKING CUSTOMIZATION: status output includes tracked player/region counts and estimated memory usage */
     private static void ShowStatus(CommandEventArgs e)
     {
-        var memoryKb = ActivityTrackingService.GetEstimatedMemoryUsage() / 1024;
-        e.Mobile.SendMessage($"Debug: {(ActivityTrackingService.DebugEnabled ? "ON" : "OFF")}, Staff tracking: {(ActivityTrackingService.IncludeStaffMembers ? "ENABLED" : "DISABLED")}, Recent kills: {ActivityTrackingService.RecentKillCount}, Players tracked: {ActivityTrackingService.PlayerCount}, Regions recorded: {ActivityTrackingService.RegionCount}, Est. memory: {memoryKb} KB.");
+        ActivityTrackingStatusGump.DisplayTo(e.Mobile);
     }
     /* END ACTIVITY TRACKING CUSTOMIZATION */
 }

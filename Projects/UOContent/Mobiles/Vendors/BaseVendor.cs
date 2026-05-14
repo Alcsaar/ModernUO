@@ -12,6 +12,9 @@ using Server.Network;
 using Server.Regions;
 using Server.Logging;
 using Server.Systems.FeatureFlags;
+/* BEGIN CUSTOM ACTIVITY TRACKING: allow NPC vendor sell transactions to credit earned gold */
+using Server.Custom.Engines.ActivityTracking;
+/* END CUSTOM ACTIVITY TRACKING */
 
 namespace Server.Mobiles
 {
@@ -425,6 +428,9 @@ namespace Server.Mobiles
             var buyInfo = GetBuyInfo();
             var GiveGold = 0;
             var Sold = 0;
+            /* BEGIN CUSTOM ACTIVITY TRACKING: collect NPC vendor sale line details for later tracking/logging */
+            var activitySaleLines = new List<ActivityTrackingService.VendorSaleLine>();
+            /* END CUSTOM ACTIVITY TRACKING */
 
             foreach (var resp in list)
             {
@@ -476,6 +482,26 @@ namespace Server.Mobiles
                     {
                         amount = resp.Item.Amount;
                     }
+
+                    var unitPrice = ssi.GetSellPriceFor(resp.Item);
+                    var lineTotal = unitPrice * amount;
+
+                    /* BEGIN CUSTOM ACTIVITY TRACKING: preserve sale item details before item consumption/movement */
+                    activitySaleLines.Add(new ActivityTrackingService.VendorSaleLine
+                    {
+                        ItemSerial = resp.Item.Serial.Value,
+                        SellerSerial = seller.Serial.Value,
+                        VendorSerial = Serial.Value,
+                        RegionName = Region?.Name ?? "Unknown",
+                        Map = Map?.ToString() ?? "Unknown",
+                        Location = Location,
+                        ItemType = resp.Item.GetType().Name,
+                        ItemName = resp.Item.Name ?? resp.Item.GetType().Name,
+                        Quantity = amount,
+                        UnitPrice = unitPrice,
+                        TotalPrice = lineTotal
+                    });
+                    /* END CUSTOM ACTIVITY TRACKING */
 
                     if (ssi.IsResellable(resp.Item))
                     {
@@ -530,13 +556,17 @@ namespace Server.Mobiles
                         }
                     }
 
-                    GiveGold += ssi.GetSellPriceFor(resp.Item) * amount;
+                    GiveGold += lineTotal;
                     break;
                 }
             }
 
             if (GiveGold > 0)
             {
+                /* BEGIN CUSTOM ACTIVITY TRACKING: preserve full NPC vendor sale payout before stack splitting mutates GiveGold */
+                var earnedGold = GiveGold;
+                /* END CUSTOM ACTIVITY TRACKING */
+
                 while (GiveGold > 60000)
                 {
                     seller.AddToBackpack(new Gold(60000));
@@ -546,6 +576,10 @@ namespace Server.Mobiles
                 seller.AddToBackpack(new Gold(GiveGold));
 
                 seller.PlaySound(0x0037); // Gold dropping sound
+
+                /* BEGIN CUSTOM ACTIVITY TRACKING: record gold earned from NPC vendor sales after payout succeeds */
+                ActivityTrackingService.RecordVendorGoldEarned(seller, this, earnedGold, activitySaleLines);
+                /* END CUSTOM ACTIVITY TRACKING */
 
                 if (ContentFeatureFlags.BulkOrders && SupportsBulkOrders(seller))
                 {

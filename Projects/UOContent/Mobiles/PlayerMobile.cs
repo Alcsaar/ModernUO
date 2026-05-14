@@ -2664,6 +2664,10 @@ namespace Server.Mobiles
                 }
             }
 
+            /* BEGIN CUSTOM ACTIVITY TRACKING: record player death context for runtime activity diagnostics */
+            ActivityTrackingService.RecordPlayerDeath(this, killer);
+            /* END CUSTOM ACTIVITY TRACKING */
+
             if (Young && DuelContext == null && YoungDeathTeleport())
             {
                 Timer.StartTimer(TimeSpan.FromSeconds(2.5), SendYoungDeathNotice);

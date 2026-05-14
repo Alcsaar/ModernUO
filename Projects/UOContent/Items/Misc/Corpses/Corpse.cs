@@ -11,6 +11,9 @@ using Server.Guilds;
 using Server.Misc;
 using Server.Mobiles;
 using Server.Network;
+/* BEGIN CUSTOM ACTIVITY TRACKING: allow corpse lift hooks to credit original monster gold loot */
+using Server.Custom.Engines.ActivityTracking;
+/* END CUSTOM ACTIVITY TRACKING */
 
 namespace Server.Items;
 
@@ -546,6 +549,10 @@ public partial class Corpse : Container, ICarvable
     {
         _decayTimer?.Stop();
         _decayTimer = null;
+
+        /* BEGIN CUSTOM ACTIVITY TRACKING: clear any remaining original monster corpse gold tracking */
+        ActivityTrackingService.ClearMonsterCorpseGold(this);
+        /* END CUSTOM ACTIVITY TRACKING */
     }
 
     public static string GetCorpseName(Mobile m) => m is BaseCreature bc ? bc.CorpseNameOverride ?? bc.CorpseName : null;
@@ -740,6 +747,10 @@ public partial class Corpse : Container, ICarvable
     public override void OnItemLifted(Mobile from, Item item)
     {
         base.OnItemLifted(from, item);
+
+        /* BEGIN CUSTOM ACTIVITY TRACKING: credit only original monster corpse gold when lifted */
+        ActivityTrackingService.RecordMonsterCorpseGoldLooted(from, this, item);
+        /* END CUSTOM ACTIVITY TRACKING */
 
         if (item != this && from != Owner)
         {
