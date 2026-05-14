@@ -1,6 +1,9 @@
 using System;
 using ModernUO.Serialization;
 using Server.Accounting;
+/* BEGIN CUSTOM ACTIVITY TRACKING: record world gold decay as economy gold leaving */
+using Server.Custom.Engines.ActivityTracking;
+/* END CUSTOM ACTIVITY TRACKING */
 
 namespace Server.Items;
 
@@ -113,4 +116,18 @@ public partial class Gold : Item
 
         return baseTotal;
     }
+
+    /* BEGIN CUSTOM ACTIVITY TRACKING: only count scheduled world decay, not normal consume/delete flows */
+    public override bool OnDecay()
+    {
+        var decays = base.OnDecay();
+
+        if (decays)
+        {
+            ActivityTrackingService.RecordGoldDecayed(this, Amount, "Gold");
+        }
+
+        return decays;
+    }
+    /* END CUSTOM ACTIVITY TRACKING */
 }

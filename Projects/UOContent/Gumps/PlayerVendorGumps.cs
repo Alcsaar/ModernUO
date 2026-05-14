@@ -4,6 +4,9 @@ using Server.HuePickers;
 using Server.Items;
 using Server.Mobiles;
 using Server.Network;
+/* BEGIN CUSTOM ACTIVITY TRACKING: record player-owned vendor sales for economy logging */
+using Server.Custom.Engines.ActivityTracking;
+/* END CUSTOM ACTIVITY TRACKING */
 
 namespace Server.Gumps
 {
@@ -99,6 +102,10 @@ namespace Server.Gumps
                     }
 
                     m_Vendor.HoldGold += m_VI.Price;
+
+                    /* BEGIN CUSTOM ACTIVITY TRACKING: player vendor sales are logging-only and do not count as earned gold */
+                    ActivityTrackingService.RecordPlayerVendorSale(from, m_Vendor, m_VI.Item, m_VI, m_VI.Price);
+                    /* END CUSTOM ACTIVITY TRACKING */
 
                     from.SendLocalizedMessage(503201); // You take the item.
                 }

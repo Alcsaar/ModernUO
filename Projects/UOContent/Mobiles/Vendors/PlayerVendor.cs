@@ -11,6 +11,9 @@ using Server.Multis;
 using Server.Prompts;
 using Server.Systems.FeatureFlags;
 using Server.Targeting;
+/* BEGIN CUSTOM ACTIVITY TRACKING: record player vendor commissions as economy sinks */
+using Server.Custom.Engines.ActivityTracking;
+/* END CUSTOM ACTIVITY TRACKING */
 
 namespace Server.Mobiles;
 
@@ -1069,21 +1072,52 @@ public partial class PlayerVendor : Mobile
             }
             else
             {
+                /* BEGIN CUSTOM ACTIVITY TRACKING: track paid player vendor commissions by funding source */
+                var originalPay = pay;
+                var paidFromBankAccount = 0;
+                var paidFromHoldGold = 0;
+                /* END CUSTOM ACTIVITY TRACKING */
+
                 if (!BaseHouse.NewVendorSystem)
                 {
                     if (m_Vendor.BankAccount >= pay)
                     {
                         m_Vendor.BankAccount -= pay;
+                        /* BEGIN CUSTOM ACTIVITY TRACKING: legacy player vendor bank account commission sink */
+                        paidFromBankAccount = pay;
+                        /* END CUSTOM ACTIVITY TRACKING */
                         pay = 0;
                     }
                     else
                     {
+                        /* BEGIN CUSTOM ACTIVITY TRACKING: legacy player vendor bank account partial commission sink */
+                        paidFromBankAccount = m_Vendor.BankAccount;
+                        /* END CUSTOM ACTIVITY TRACKING */
                         pay -= m_Vendor.BankAccount;
                         m_Vendor.BankAccount = 0;
                     }
                 }
 
                 m_Vendor.HoldGold -= pay;
+
+                /* BEGIN CUSTOM ACTIVITY TRACKING: remaining commission is removed from held player vendor gold */
+                paidFromHoldGold = pay;
+
+                if (paidFromBankAccount > 0)
+                {
+                    ActivityTrackingService.RecordPlayerVendorCommission(m_Vendor, paidFromBankAccount, "vendor bank account");
+                }
+
+                if (paidFromHoldGold > 0)
+                {
+                    ActivityTrackingService.RecordPlayerVendorCommission(m_Vendor, paidFromHoldGold, "held gold");
+                }
+
+                if (originalPay > 0 && paidFromBankAccount == 0 && paidFromHoldGold == 0)
+                {
+                    ActivityTrackingService.RecordPlayerVendorCommission(m_Vendor, originalPay, "commission");
+                }
+                /* END CUSTOM ACTIVITY TRACKING */
             }
         }
     }

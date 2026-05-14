@@ -15,6 +15,7 @@ public static class ActivityTrackingService
     private const int MaxPlayerActivities = 200;
 
     private static readonly Dictionary<uint, ActivityTrackingPlayerData> _players = new();
+    private static readonly Dictionary<string, AccountBalanceRecord> _accountBalances = new(StringComparer.OrdinalIgnoreCase);
     private static readonly Dictionary<uint, string> _lastRecordedRegion = new();
     private static readonly Dictionary<uint, MonsterCorpseGoldRecord> _monsterCorpseGold = new();
     private static readonly List<CreatureKillRecord> _recentCreatureKills = new();
@@ -51,6 +52,14 @@ public static class ActivityTrackingService
         get
         {
             return _players.Count;
+        }
+    }
+
+    public static int AccountBalanceCount
+    {
+        get
+        {
+            return _accountBalances.Count;
         }
     }
 
@@ -138,6 +147,85 @@ public static class ActivityTrackingService
         }
     }
 
+    public static long TotalGoldSpent
+    {
+        get
+        {
+            long total = 0;
+
+            foreach (var data in _players.Values)
+            {
+                total += data.TotalGoldSpent;
+            }
+
+            return total;
+        }
+    }
+
+    public static long TotalNpcVendorGoldSpent
+    {
+        get
+        {
+            long total = 0;
+
+            foreach (var data in _players.Values)
+            {
+                total += data.TotalNpcVendorGoldSpent;
+            }
+
+            return total;
+        }
+    }
+
+    public static long TotalPlayerVendorSales
+    {
+        get
+        {
+            long total = 0;
+
+            foreach (var data in _players.Values)
+            {
+                total += data.TotalPlayerVendorSales;
+            }
+
+            return total;
+        }
+    }
+
+    public static long TotalPlayerVendorCommissions
+    {
+        get
+        {
+            long total = 0;
+
+            foreach (var data in _players.Values)
+            {
+                total += data.TotalPlayerVendorCommissions;
+            }
+
+            return total;
+        }
+    }
+
+    public static long TotalGoldDecayed { get; private set; }
+
+    public static long TotalGoldLeavingEconomy => TotalNpcVendorGoldSpent + TotalPlayerVendorCommissions + TotalGoldDecayed;
+
+    public static long TotalKnownBankBalance
+    {
+        get
+        {
+            long total = 0;
+
+            foreach (var account in _accountBalances.Values)
+            {
+                total += account.Balance;
+            }
+
+            return total;
+        }
+    }
+
     public static long GetEstimatedMemoryUsage()
     {
         long memory = 0;
@@ -151,6 +239,10 @@ public static class ActivityTrackingService
             memory += playerData.Activities.Count * 192L;
             memory += playerData.ExploredRegions.Count * 160L;
         }
+        /* END ACTIVITY TRACKING CUSTOMIZATION */
+
+        /* BEGIN ACTIVITY TRACKING CUSTOMIZATION: include cached account economy balances in runtime memory estimate */
+        memory += _accountBalances.Count * 160L;
         /* END ACTIVITY TRACKING CUSTOMIZATION */
 
         /* BEGIN ACTIVITY TRACKING CUSTOMIZATION: include active monster corpse gold records in runtime memory estimate */
@@ -202,9 +294,11 @@ public static class ActivityTrackingService
     public static void ResetData()
     {
         _players.Clear();
+        _accountBalances.Clear();
         _lastRecordedRegion.Clear();
         _monsterCorpseGold.Clear();
         _recentCreatureKills.Clear();
+        TotalGoldDecayed = 0;
     }
 
     public static void ToggleDebug()
@@ -392,6 +486,166 @@ public static class ActivityTrackingService
         );
     }
 
+    public static void RecordNpcVendorGoldSpent(
+        Mobile buyer,
+        BaseVendor vendor,
+        int amount,
+        IReadOnlyList<VendorSaleLine> purchaseLines
+    )
+    {
+        if (buyer is not PlayerMobile player || vendor == null || amount <= 0 || !ShouldTrackPlayer(player))
+        {
+            return;
+        }
+
+        RecordGoldSpent(
+            player,
+            amount,
+            ActivityGoldSink.NpcVendorPurchase,
+            vendor.Serial.Value,
+            vendor.Name ?? vendor.GetType().Name,
+            vendor.GetType().Name,
+            new ActivityLocation
+            {
+                RegionName = vendor.Region?.Name ?? "Unknown",
+                Map = vendor.Map?.ToString() ?? "Unknown",
+                Location = vendor.Location
+            },
+            purchaseLines
+        );
+    }
+
+    public static void RecordPlayerVendorSale(Mobile buyer, PlayerVendor vendor, Item item, VendorItem vendorItem, int amount)
+    {
+        if (buyer is not PlayerMobile player || vendor == null || item == null || vendorItem == null || amount < 0 || !ShouldTrackPlayer(player))
+        {
+            return;
+        }
+
+        var owner = vendor.Owner as PlayerMobile;
+        var quantity = item.Amount > 0 ? item.Amount : 1;
+        var line = new VendorSaleLine
+        {
+            ItemSerial = item.Serial.Value,
+            SellerSerial = vendor.Owner?.Serial.Value ?? 0,
+            BuyerSerial = player.Serial.Value,
+            VendorSerial = vendor.Serial.Value,
+            RegionName = vendor.Region?.Name ?? "Unknown",
+            Map = vendor.Map?.ToString() ?? "Unknown",
+            Location = vendor.Location,
+            ItemType = item.GetType().Name,
+            ItemName = item.Name ?? vendorItem.Description.DefaultIfNullOrEmpty(item.GetType().Name),
+            Quantity = quantity,
+            UnitPrice = quantity > 0 ? amount / quantity : amount,
+            TotalPrice = amount
+        };
+
+        var timestamp = DateTime.UtcNow;
+        var data = GetOrCreatePlayerData(player);
+        data.TotalGoldSpent += amount;
+        data.TotalPlayerVendorPurchaseGold += amount;
+        AddPlayerActivity(
+            data,
+            $"{timestamp:O}: Bought {BuildVendorSaleSummary([line])} from player vendor {vendor.Name ?? vendor.GetType().Name}/{vendor.Serial.Value} at {line.Map} {line.Location} region={line.RegionName}"
+        );
+        data.LastUpdatedUtc = timestamp;
+        RefreshBankBalance(player);
+
+        if (owner != null && ShouldTrackPlayer(owner))
+        {
+            var ownerData = GetOrCreatePlayerData(owner);
+            ownerData.TotalPlayerVendorSales += amount;
+            AddPlayerActivity(
+                ownerData,
+                $"{timestamp:O}: Player vendor {vendor.Name ?? vendor.GetType().Name}/{vendor.Serial.Value} sold {BuildVendorSaleSummary([line])} to {player.Name ?? "Unknown"}/{player.Serial.Value} at {line.Map} {line.Location} region={line.RegionName}"
+            );
+            ownerData.LastUpdatedUtc = timestamp;
+            RefreshBankBalance(owner);
+        }
+
+        if (DebugEnabled)
+        {
+            WritePlayerVendorSaleDebug(player, owner, vendor, line);
+        }
+    }
+
+    public static void RecordPlayerVendorCommission(PlayerVendor vendor, int amount, string fundingSource)
+    {
+        if (vendor == null || amount <= 0)
+        {
+            return;
+        }
+
+        var owner = vendor.Owner as PlayerMobile;
+        var timestamp = DateTime.UtcNow;
+
+        if (owner != null && ShouldTrackPlayer(owner))
+        {
+            var data = GetOrCreatePlayerData(owner);
+            data.TotalPlayerVendorCommissions += amount;
+            AddPlayerActivity(
+                data,
+                $"{timestamp:O}: Player vendor commission removed {amount} gold from {fundingSource} for {vendor.Name ?? vendor.GetType().Name}/{vendor.Serial.Value} at {vendor.Map} {vendor.Location} region={vendor.Region?.Name ?? "Unknown"}"
+            );
+            data.LastUpdatedUtc = timestamp;
+            RefreshBankBalance(owner);
+        }
+
+        if (DebugEnabled)
+        {
+            WriteEconomyDebug(
+                $"[ActivityTracking] {timestamp:O}: Player vendor commission removed {amount} gold from {fundingSource} for {vendor.Name ?? vendor.GetType().Name}/{vendor.Serial.Value}."
+            );
+        }
+    }
+
+    public static void RecordGoldDecayed(Item item, int amount, string currencyType)
+    {
+        if (item == null || amount <= 0)
+        {
+            return;
+        }
+
+        TotalGoldDecayed += amount;
+
+        if (DebugEnabled)
+        {
+            var region = Region.Find(item.Location, item.Map);
+            WriteEconomyDebug(
+                $"[ActivityTracking] {DateTime.UtcNow:O}: {currencyType} decayed for {amount} gold at {item.Map} {item.Location} region={region?.Name ?? "Unknown"} item={item.Serial.Value}."
+            );
+        }
+    }
+
+    public static void RefreshBankBalance(PlayerMobile player)
+    {
+        if (player == null || !ShouldTrackPlayer(player))
+        {
+            return;
+        }
+
+        var data = GetOrCreatePlayerData(player);
+        var balance = Banker.GetBalance(player);
+        var timestamp = DateTime.UtcNow;
+
+        data.LastKnownBankBalance = balance;
+        data.LastBankBalanceUtc = timestamp;
+        data.LastUpdatedUtc = timestamp;
+
+        var accountName = player.Account?.Username ?? string.Empty;
+        if (!string.IsNullOrWhiteSpace(accountName))
+        {
+            _accountBalances[accountName] = new AccountBalanceRecord
+            {
+                AccountName = accountName,
+                LastPlayerSerial = player.Serial.Value,
+                LastPlayerName = player.Name ?? string.Empty,
+                Balance = balance,
+                LastUpdatedUtc = timestamp
+            };
+        }
+    }
+
     private static void RecordGoldEarned(
         PlayerMobile player,
         int amount,
@@ -428,6 +682,43 @@ public static class ActivityTrackingService
         if (DebugEnabled)
         {
             WriteGoldDebug(player, amount, source, sourceSerial, sourceName, sourceType, location, saleLines);
+        }
+    }
+
+    private static void RecordGoldSpent(
+        PlayerMobile player,
+        int amount,
+        ActivityGoldSink sink,
+        uint sinkSerial,
+        string sinkName,
+        string sinkType,
+        ActivityLocation location,
+        IReadOnlyList<VendorSaleLine> purchaseLines = null
+    )
+    {
+        var data = GetOrCreatePlayerData(player);
+        var timestamp = DateTime.UtcNow;
+
+        data.TotalGoldSpent += amount;
+
+        switch (sink)
+        {
+            case ActivityGoldSink.NpcVendorPurchase:
+                data.TotalNpcVendorGoldSpent += amount;
+                break;
+        }
+
+        var activity = sink == ActivityGoldSink.NpcVendorPurchase && purchaseLines?.Count > 0
+            ? $"{timestamp:O}: Spent {amount} gold on {sink} ({sinkName}/{sinkType}/{sinkSerial}) at {location.Map} {location.Location} region={location.RegionName} buying {BuildVendorSaleSummary(purchaseLines)}"
+            : $"{timestamp:O}: Spent {amount} gold on {sink} ({sinkName}/{sinkType}/{sinkSerial}) at {location.Map} {location.Location} region={location.RegionName}";
+
+        AddPlayerActivity(data, activity);
+        data.LastUpdatedUtc = timestamp;
+        RefreshBankBalance(player);
+
+        if (DebugEnabled)
+        {
+            WriteGoldSpentDebug(player, amount, sink, sinkSerial, sinkName, sinkType, location, purchaseLines);
         }
     }
     /* END ACTIVITY TRACKING CUSTOMIZATION */
@@ -840,6 +1131,73 @@ public static class ActivityTrackingService
             }
         }
     }
+
+    private static void WriteGoldSpentDebug(
+        PlayerMobile player,
+        int amount,
+        ActivityGoldSink sink,
+        uint sinkSerial,
+        string sinkName,
+        string sinkType,
+        ActivityLocation location,
+        IReadOnlyList<VendorSaleLine> purchaseLines
+    )
+    {
+        var accountName = player.Account?.Username ?? "Unknown";
+        var summary = $"[ActivityTracking] {DateTime.UtcNow:O}: Player {player.Name}/{accountName}/{player.Serial.Value} spent {amount} gold on {sink} ({sinkName}/{sinkType}/{sinkSerial}) at {location.Map} {location.Location} region={location.RegionName}.";
+
+        try
+        {
+            Utility.PushColor(ConsoleColor.Magenta);
+            _logger.Information(summary);
+
+            if (purchaseLines?.Count > 0)
+            {
+                for (var i = 0; i < purchaseLines.Count; i++)
+                {
+                    var line = purchaseLines[i];
+                    _logger.Information(
+                        "  Bought {Quantity}x {ItemName} ({ItemType}, {ItemSerial}) at {UnitPrice} each for {TotalPrice} gold",
+                        line.Quantity,
+                        line.ItemName,
+                        line.ItemType,
+                        line.ItemSerial,
+                        line.UnitPrice,
+                        line.TotalPrice
+                    );
+                }
+            }
+        }
+        finally
+        {
+            Utility.PopColor();
+        }
+    }
+
+    private static void WritePlayerVendorSaleDebug(
+        PlayerMobile buyer,
+        PlayerMobile owner,
+        PlayerVendor vendor,
+        VendorSaleLine line
+    )
+    {
+        var summary = $"[ActivityTracking] {DateTime.UtcNow:O}: Player vendor {vendor.Name ?? vendor.GetType().Name}/{vendor.Serial.Value} sold {line.Quantity}x {line.ItemName} ({line.ItemType}/{line.ItemSerial}) to {buyer.Name}/{buyer.Serial.Value} for {line.TotalPrice} gold. Owner={owner?.Name ?? "Unknown"}/{owner?.Serial.Value ?? 0}.";
+
+        WriteEconomyDebug(summary);
+    }
+
+    private static void WriteEconomyDebug(string summary)
+    {
+        try
+        {
+            Utility.PushColor(ConsoleColor.DarkCyan);
+            _logger.Information(summary);
+        }
+        finally
+        {
+            Utility.PopColor();
+        }
+    }
     /* END ACTIVITY TRACKING CUSTOMIZATION */
 
     /* BEGIN ACTIVITY TRACKING CUSTOMIZATION: colored skill milestone debug output */
@@ -894,6 +1252,20 @@ public static class ActivityTrackingService
         public long TotalMonsterGoldLooted { get; set; }
 
         public long TotalNpcVendorGoldEarned { get; set; }
+
+        public long TotalGoldSpent { get; set; }
+
+        public long TotalNpcVendorGoldSpent { get; set; }
+
+        public long TotalPlayerVendorPurchaseGold { get; set; }
+
+        public long TotalPlayerVendorSales { get; set; }
+
+        public long TotalPlayerVendorCommissions { get; set; }
+
+        public long LastKnownBankBalance { get; set; }
+
+        public DateTime LastBankBalanceUtc { get; set; }
 
         public string LastCreatureKilled { get; set; }
 
@@ -954,6 +1326,7 @@ public static class ActivityTrackingService
     {
         public uint ItemSerial { get; set; }
         public uint SellerSerial { get; set; }
+        public uint BuyerSerial { get; set; }
         public uint VendorSerial { get; set; }
         public string RegionName { get; set; }
         public string Map { get; set; }
@@ -987,6 +1360,20 @@ public static class ActivityTrackingService
     {
         MonsterCorpse,
         NpcVendorSale
+    }
+
+    private enum ActivityGoldSink
+    {
+        NpcVendorPurchase
+    }
+
+    public sealed class AccountBalanceRecord
+    {
+        public string AccountName { get; set; }
+        public uint LastPlayerSerial { get; set; }
+        public string LastPlayerName { get; set; }
+        public long Balance { get; set; }
+        public DateTime LastUpdatedUtc { get; set; }
     }
 }
 

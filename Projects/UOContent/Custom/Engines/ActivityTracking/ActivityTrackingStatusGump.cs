@@ -50,39 +50,41 @@ public sealed class ActivityTrackingStatusGump : DynamicGump
 
         BuildRuntimeSection(ref builder, 30, 55);
         BuildTrackingSection(ref builder, 295, 55);
-        BuildGoldSection(ref builder, 30, 205);
-        BuildMemorySection(ref builder, 295, 205);
+        BuildGoldSection(ref builder, 30, 185);
+        BuildMemorySection(ref builder, 295, 185);
+        BuildEconomySection(ref builder, 30, 330);
 
-        builder.AddLabel(30, 397, HueMuted, "Auto refreshes every 5 seconds");
+        builder.AddLabel(30, 405, HueMuted, "Auto refreshes every 5 seconds");
 
-        builder.AddButton(470, 395, 4017, 4019, 0);
-        builder.AddLabel(505, 397, HueText, "Close");
+        builder.AddButton(470, 403, 4017, 4019, 0);
+        builder.AddLabel(505, 405, HueText, "Close");
     }
 
     private static void BuildRuntimeSection(ref DynamicGumpBuilder builder, int x, int y)
     {
-        builder.AddBackground(x, y, 235, 130, 9250);
+        builder.AddBackground(x, y, 235, 125, 9250);
         builder.AddLabel(x + 15, y + 12, HueHeader, "Runtime");
 
         AddMetric(ref builder, x, y, 38, "Debug", ActivityTrackingService.DebugEnabled ? "ON" : "OFF", ActivityTrackingService.DebugEnabled ? HueGood : HueMuted);
         AddMetric(ref builder, x, y, 60, "Staff Tracking", ActivityTrackingService.IncludeStaffMembers ? "ENABLED" : "DISABLED", ActivityTrackingService.IncludeStaffMembers ? HueWarn : HueMuted);
         AddMetric(ref builder, x, y, 82, "Tracked Players", ActivityTrackingService.PlayerCount.ToString("N0"), HueText);
-        AddMetric(ref builder, x, y, 104, "Regions", ActivityTrackingService.RegionCount.ToString("N0"), HueText);
+        AddMetric(ref builder, x, y, 104, "Accounts", ActivityTrackingService.AccountBalanceCount.ToString("N0"), HueText);
     }
 
     private static void BuildTrackingSection(ref DynamicGumpBuilder builder, int x, int y)
     {
-        builder.AddBackground(x, y, 235, 130, 9250);
+        builder.AddBackground(x, y, 235, 125, 9250);
         builder.AddLabel(x + 15, y + 12, HueHeader, "Activity");
 
         AddMetric(ref builder, x, y, 38, "Recent Kills", ActivityTrackingService.RecentKillCount.ToString("N0"), HueText);
         AddMetric(ref builder, x, y, 60, "Deaths", ActivityTrackingService.TotalDeathCount.ToString("N0"), HueText);
         AddMetric(ref builder, x, y, 82, "Gold Corpses", ActivityTrackingService.MonsterCorpseGoldRecordCount.ToString("N0"), HueText);
+        AddMetric(ref builder, x, y, 104, "Regions", ActivityTrackingService.RegionCount.ToString("N0"), HueText);
     }
 
     private static void BuildGoldSection(ref DynamicGumpBuilder builder, int x, int y)
     {
-        builder.AddBackground(x, y, 235, 150, 9250);
+        builder.AddBackground(x, y, 235, 130, 9250);
         builder.AddLabel(x + 15, y + 12, HueHeader, "Gold Earned");
 
         AddMetric(ref builder, x, y, 38, "Total", ActivityTrackingService.TotalGoldEarned.ToString("N0"), HueGood);
@@ -90,19 +92,29 @@ public sealed class ActivityTrackingStatusGump : DynamicGump
         AddMetric(ref builder, x, y, 82, "NPC Vendors", ActivityTrackingService.TotalNpcVendorGoldEarned.ToString("N0"), HueText);
     }
 
+    private static void BuildEconomySection(ref DynamicGumpBuilder builder, int x, int y)
+    {
+        builder.AddBackground(x, y, 500, 65, 9250);
+        builder.AddLabel(x + 15, y + 12, HueHeader, "Economy");
+
+        AddMetric(ref builder, x, y, 38, "Bank Known", ActivityTrackingService.TotalKnownBankBalance.ToString("N0"), HueGood);
+        AddMetric(ref builder, x + 250, y, 38, "Gold Leaving", ActivityTrackingService.TotalGoldLeavingEconomy.ToString("N0"), HueWarn);
+        AddMetric(ref builder, x, y, 60, "NPC Bought", ActivityTrackingService.TotalNpcVendorGoldSpent.ToString("N0"), HueText);
+        AddMetric(ref builder, x + 250, y, 60, "PV Sales", ActivityTrackingService.TotalPlayerVendorSales.ToString("N0"), HueText);
+    }
+
     private static void BuildMemorySection(ref DynamicGumpBuilder builder, int x, int y)
     {
         var memoryBytes = ActivityTrackingService.GetEstimatedMemoryUsage();
         var memoryKb = memoryBytes / 1024;
 
-        builder.AddBackground(x, y, 235, 150, 9250);
+        builder.AddBackground(x, y, 235, 130, 9250);
         builder.AddLabel(x + 15, y + 12, HueHeader, "Memory");
 
         AddMetric(ref builder, x, y, 38, "Estimated", $"{memoryKb:N0} KB", HueText);
         AddMetric(ref builder, x, y, 60, "Bytes", memoryBytes.ToString("N0"), HueMuted);
-
-        builder.AddLabel(x + 15, y + 100, HueMuted, "Runtime-only data");
-        builder.AddLabel(x + 15, y + 122, HueMuted, "Cleared on restart/reset");
+        AddMetric(ref builder, x, y, 82, "Commissions", ActivityTrackingService.TotalPlayerVendorCommissions.ToString("N0"), HueWarn);
+        AddMetric(ref builder, x, y, 104, "Decayed", ActivityTrackingService.TotalGoldDecayed.ToString("N0"), HueWarn);
     }
 
     private static void AddMetric(

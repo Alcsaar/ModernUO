@@ -37,7 +37,7 @@ using Server.Spells.Sixth;
 using Server.Spells.Spellweaving;
 using Server.Systems.FeatureFlags;
 using Server.Targeting;
-/* BEGIN CUSTOM ACTIVITY TRACKING: expose the in-memory activity tracking service to skill milestone hooks */
+/* BEGIN CUSTOM ACTIVITY TRACKING: expose the in-memory activity tracking service to player hooks */
 using Server.Custom.Engines.ActivityTracking;
 /* END CUSTOM ACTIVITY TRACKING */
 using BaseQuestGump = Server.Engines.MLQuests.Gumps.BaseQuestGump;
@@ -1286,6 +1286,10 @@ namespace Server.Mobiles
             from.ClaimAutoStabledPets();
             AnimalForm.GetContext(from)?.Timer.Start();
             from.ResendBuffs();
+
+            /* BEGIN CUSTOM ACTIVITY TRACKING: snapshot bank balance on login for runtime economy status */
+            ActivityTrackingService.RefreshBankBalance(from);
+            /* END CUSTOM ACTIVITY TRACKING */
         }
 
         private class ServerLockdownNoticeGump : StaticNoticeGump<ServerLockdownNoticeGump>

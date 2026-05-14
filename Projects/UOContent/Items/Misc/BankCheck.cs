@@ -1,6 +1,9 @@
 using System;
 using ModernUO.Serialization;
 using Server.Accounting;
+/* BEGIN CUSTOM ACTIVITY TRACKING: record world bank check decay as economy gold leaving */
+using Server.Custom.Engines.ActivityTracking;
+/* END CUSTOM ACTIVITY TRACKING */
 using Server.Engines.Quests.Haven;
 using Server.Engines.Quests.Necro;
 using Server.Mobiles;
@@ -204,4 +207,18 @@ public partial class BankCheck : Item
             }
         }
     }
+
+    /* BEGIN CUSTOM ACTIVITY TRACKING: only count scheduled world decay, not normal cash/deposit/delete flows */
+    public override bool OnDecay()
+    {
+        var decays = base.OnDecay();
+
+        if (decays)
+        {
+            ActivityTrackingService.RecordGoldDecayed(this, _worth, "BankCheck");
+        }
+
+        return decays;
+    }
+    /* END CUSTOM ACTIVITY TRACKING */
 }
