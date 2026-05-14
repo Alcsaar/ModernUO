@@ -1,11 +1,16 @@
 using System;
 using ModernUO.Serialization;
+using Server.Custom.Engines.ActivityTracking;
 
 namespace Server.Items;
 
 [SerializationGenerator(0, false)]
 public partial class TreasureChestLevel2 : LockableContainer
 {
+    /* BEGIN ACTIVITY TRACKING CUSTOMIZATION: guard against counting multiple opens for the same legacy dungeon treasure chest */
+    private bool _activityOpened;
+    /* END ACTIVITY TRACKING CUSTOMIZATION */
+
     [Constructible]
     public TreasureChestLevel2() : base(0xE41)
     {
@@ -29,7 +34,9 @@ public partial class TreasureChestLevel2 : LockableContainer
         //  Gems
 
         // Gold
-        DropItem(new Gold(Utility.Random(70, 100)));
+        var gold = new Gold(Utility.Random(70, 100));
+        DropItem(gold);
+        ActivityTrackingService.RegisterDungeonTreasureChestGold(this, gold);
 
         // Drop bolts
         // DropItem( new Arrow( 10 ) );
@@ -114,4 +121,29 @@ public partial class TreasureChestLevel2 : LockableContainer
     {
         (ItemID, GumpID) = _chestAppearances.RandomElement();
     }
+
+    /* BEGIN ACTIVITY TRACKING CUSTOMIZATION: count and credit legacy dungeon treasure chest interactions on open and gold lift */
+    public override void Open(Mobile from)
+    {
+        base.Open(from);
+
+        if (!Locked && !_activityOpened)
+        {
+            _activityOpened = true;
+            ActivityTrackingService.RecordDungeonTreasureChestOpened(from, this, nameof(TreasureChestLevel2));
+        }
+    }
+
+    public override void OnItemLifted(Mobile from, Item item)
+    {
+        base.OnItemLifted(from, item);
+        ActivityTrackingService.RecordDungeonTreasureChestGoldLooted(from, this, item);
+    }
+
+    public override void OnAfterDelete()
+    {
+        ActivityTrackingService.ClearDungeonTreasureChestGold(this);
+        base.OnAfterDelete();
+    }
+    /* END ACTIVITY TRACKING CUSTOMIZATION */
 }

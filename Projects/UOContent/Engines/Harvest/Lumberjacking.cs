@@ -1,4 +1,5 @@
 using System;
+using Server.Custom.Engines.ActivityTracking;
 using Server.Items;
 using Server.Targeting;
 
@@ -176,6 +177,14 @@ namespace Server.Engines.Harvest
         }
 
         public override object GetLock(Mobile from, Item tool, HarvestDefinition def, object toHarvest) => this;
+
+        /* BEGIN ACTIVITY TRACKING CUSTOMIZATION: record successful lumber yields by log and bonus material type */
+        public override void SendSuccessTo(Mobile from, Item item, HarvestResource resource)
+        {
+            base.SendSuccessTo(from, item, resource);
+            ActivityTrackingService.RecordLumberYield(from, item);
+        }
+        /* END ACTIVITY TRACKING CUSTOMIZATION */
 
         public override void OnHarvestStarted(Mobile from, Item tool, HarvestDefinition def, object toHarvest)
         {

@@ -1,9 +1,12 @@
 using System;
 using System.Collections.Generic;
 using Server;
+using Server.Accounting;
+using Server.Engines.Craft;
 using Server.Items;
 using Server.Logging;
 using Server.Mobiles;
+using Server.Multis;
 using Server.Network;
 using Server.Text;
 
@@ -13,13 +16,17 @@ public static class ActivityTrackingService
 {
     private const int MaxRecentCreatureKills = 100;
     private const int MaxPlayerActivities = 200;
+    private static readonly TimeSpan CurrencySnapshotRefreshInterval = TimeSpan.FromSeconds(5.0);
 
     private static readonly Dictionary<uint, ActivityTrackingPlayerData> _players = new();
     private static readonly Dictionary<string, AccountBalanceRecord> _accountBalances = new(StringComparer.OrdinalIgnoreCase);
     private static readonly Dictionary<uint, string> _lastRecordedRegion = new();
     private static readonly Dictionary<uint, MonsterCorpseGoldRecord> _monsterCorpseGold = new();
+    private static readonly Dictionary<uint, TreasureChestGoldRecord> _treasureMapChestGold = new();
+    private static readonly Dictionary<uint, TreasureChestGoldRecord> _dungeonTreasureChestGold = new();
     private static readonly List<CreatureKillRecord> _recentCreatureKills = new();
     private static readonly ILogger _logger = LogFactory.GetLogger(typeof(ActivityTrackingService));
+    private static CurrencySnapshot _currencySnapshot = new();
     private static bool _includeStaffMembers = false;
     private static bool _debugEnabled = false;
 
@@ -59,7 +66,8 @@ public static class ActivityTrackingService
     {
         get
         {
-            return _accountBalances.Count;
+            EnsureCurrencySnapshotCurrent();
+            return _currencySnapshot.VirtualAccountCount;
         }
     }
 
@@ -102,6 +110,141 @@ public static class ActivityTrackingService
         }
     }
 
+    public static int TotalCraftingActions
+    {
+        get
+        {
+            var count = 0;
+
+            foreach (var data in _players.Values)
+            {
+                count += data.TotalCraftingActions;
+            }
+
+            return count;
+        }
+    }
+
+    public static int TotalCraftedQuantity
+    {
+        get
+        {
+            var count = 0;
+
+            foreach (var data in _players.Values)
+            {
+                count += data.TotalCraftedQuantity;
+            }
+
+            return count;
+        }
+    }
+
+    public static int TotalFishingCatches
+    {
+        get
+        {
+            var count = 0;
+
+            foreach (var data in _players.Values)
+            {
+                count += data.TotalFishingCatches;
+            }
+
+            return count;
+        }
+    }
+
+    public static int TotalTreasureMapChestsOpened
+    {
+        get
+        {
+            var count = 0;
+
+            foreach (var data in _players.Values)
+            {
+                count += data.TotalTreasureMapChestsOpened;
+            }
+
+            return count;
+        }
+    }
+
+    public static int TotalMiningMaterials
+    {
+        get
+        {
+            var count = 0;
+
+            foreach (var data in _players.Values)
+            {
+                count += data.TotalMiningMaterials;
+            }
+
+            return count;
+        }
+    }
+
+    public static int TotalLumberMaterials
+    {
+        get
+        {
+            var count = 0;
+
+            foreach (var data in _players.Values)
+            {
+                count += data.TotalLumberMaterials;
+            }
+
+            return count;
+        }
+    }
+
+    public static long TotalTreasureMapChestGoldLooted
+    {
+        get
+        {
+            long total = 0;
+
+            foreach (var data in _players.Values)
+            {
+                total += data.TotalTreasureMapChestGoldLooted;
+            }
+
+            return total;
+        }
+    }
+
+    public static long TotalDungeonTreasureChestGoldLooted
+    {
+        get
+        {
+            long total = 0;
+
+            foreach (var data in _players.Values)
+            {
+                total += data.TotalDungeonTreasureChestGoldLooted;
+            }
+
+            return total;
+        }
+    }
+
+    public static int TotalDungeonTreasureChestsOpened
+    {
+        get
+        {
+            var count = 0;
+
+            foreach (var data in _players.Values)
+            {
+                count += data.TotalDungeonTreasureChestsOpened;
+            }
+
+            return count;
+        }
+    }
+
     public static long TotalGoldEarned
     {
         get
@@ -116,6 +259,10 @@ public static class ActivityTrackingService
             return total;
         }
     }
+
+    public static IReadOnlyDictionary<string, int> MiningMaterialTotals => BuildAggregateMaterialTotals(true);
+
+    public static IReadOnlyDictionary<string, int> LumberMaterialTotals => BuildAggregateMaterialTotals(false);
 
     public static long TotalMonsterGoldLooted
     {
@@ -215,14 +362,8 @@ public static class ActivityTrackingService
     {
         get
         {
-            long total = 0;
-
-            foreach (var account in _accountBalances.Values)
-            {
-                total += account.Balance;
-            }
-
-            return total;
+            EnsureCurrencySnapshotCurrent();
+            return _currencySnapshot.TotalCurrency;
         }
     }
 
@@ -268,7 +409,9 @@ public static class ActivityTrackingService
 
     public static void Initialize()
     {
-        // No-op for now.
+        /* BEGIN ACTIVITY TRACKING CUSTOMIZATION: initialize cached economy snapshot for status visibility */
+        RefreshKnownCurrencySnapshot(true);
+        /* END ACTIVITY TRACKING CUSTOMIZATION */
     }
 
     public static void LoadPlayerData()
@@ -297,7 +440,10 @@ public static class ActivityTrackingService
         _accountBalances.Clear();
         _lastRecordedRegion.Clear();
         _monsterCorpseGold.Clear();
+        _treasureMapChestGold.Clear();
+        _dungeonTreasureChestGold.Clear();
         _recentCreatureKills.Clear();
+        _currencySnapshot = new CurrencySnapshot();
         TotalGoldDecayed = 0;
     }
 
@@ -348,6 +494,210 @@ public static class ActivityTrackingService
     public static void RecordSkillMilestone(PlayerMobile player, SkillName skill, double oldBase)
     {
         ActivityTrackingSkills.RecordSkillMilestone(player, skill, oldBase);
+    }
+
+    public static void RecordCraftedItem(Mobile from, Item item, CraftSystem craftSystem, int quality)
+    {
+        if (from is not PlayerMobile player || item == null || craftSystem == null || !ShouldTrackPlayer(player))
+        {
+            return;
+        }
+
+        var data = GetOrCreatePlayerData(player);
+        var timestamp = DateTime.UtcNow;
+        var quantity = item.Amount > 0 ? item.Amount : 1;
+        var qualityText = quality switch
+        {
+            > 1 => " exceptional",
+            < 0 => " failed",
+            _   => string.Empty
+        };
+
+        data.TotalCraftingActions++;
+        data.TotalCraftedQuantity += quantity;
+        AddPlayerActivity(
+            data,
+            $"{timestamp:O}: Crafted {quantity}x {item.GetType().Name} via {craftSystem.GetType().Name} ({craftSystem.MainSkill}){qualityText}"
+        );
+        data.LastUpdatedUtc = timestamp;
+
+        if (DebugEnabled)
+        {
+            WriteActivityDebug(player, $"crafted {quantity}x {item.GetType().Name} via {craftSystem.GetType().Name} ({craftSystem.MainSkill}){qualityText}");
+        }
+    }
+
+    public static void RecordFishingCatch(Mobile from, Item item)
+    {
+        if (from is not PlayerMobile player || item == null || !ShouldTrackPlayer(player))
+        {
+            return;
+        }
+
+        var data = GetOrCreatePlayerData(player);
+        var timestamp = DateTime.UtcNow;
+        var quantity = item.Amount > 0 ? item.Amount : 1;
+
+        data.TotalFishingCatches++;
+        AddPlayerActivity(data, $"{timestamp:O}: Caught {quantity}x {item.GetType().Name} while fishing");
+        data.LastUpdatedUtc = timestamp;
+
+        if (DebugEnabled)
+        {
+            WriteActivityDebug(player, $"caught {quantity}x {item.GetType().Name} while fishing");
+        }
+    }
+
+    public static void RecordMiningYield(Mobile from, Item item)
+    {
+        RecordHarvestYield(from, item, true);
+    }
+
+    public static void RecordLumberYield(Mobile from, Item item)
+    {
+        RecordHarvestYield(from, item, false);
+    }
+
+    public static void RecordTreasureMapCompleted(Mobile from, TreasureMapChest chest)
+    {
+        if (from is not PlayerMobile player || chest == null || !ShouldTrackPlayer(player))
+        {
+            return;
+        }
+
+        var data = GetOrCreatePlayerData(player);
+        var timestamp = DateTime.UtcNow;
+        var region = Region.Find(chest.Location, chest.Map);
+
+        data.TotalTreasureMapChestsOpened++;
+        AddPlayerActivity(
+            data,
+            $"{timestamp:O}: Completed treasure map chest level {chest.Level} at {chest.Map} {chest.Location} region={region?.Name ?? "Unknown"}"
+        );
+        data.LastUpdatedUtc = timestamp;
+
+        if (DebugEnabled)
+        {
+            WriteActivityDebug(player, $"completed treasure map chest level {chest.Level} at {chest.Map} {chest.Location} region={region?.Name ?? "Unknown"}");
+        }
+    }
+
+    public static void RegisterTreasureMapChestGold(TreasureMapChest chest, Gold gold)
+    {
+        RegisterTreasureChestGold(_treasureMapChestGold, chest, gold, "TreasureMapChest");
+    }
+
+    public static void RegisterDungeonTreasureChestGold(BaseTreasureChest chest, Gold gold)
+    {
+        RegisterTreasureChestGold(_dungeonTreasureChestGold, chest, gold, "DungeonTreasureChest");
+    }
+
+    public static void RegisterDungeonTreasureChestGold(LockableContainer chest, Gold gold)
+    {
+        RegisterTreasureChestGold(_dungeonTreasureChestGold, chest, gold, chest?.GetType().Name ?? "DungeonTreasureChest");
+    }
+
+    public static void RecordTreasureMapChestGoldLooted(Mobile from, TreasureMapChest chest, Item item)
+    {
+        RecordTreasureChestGoldLooted(from, chest, item, _treasureMapChestGold, ActivityGoldSource.TreasureMapChestGold);
+    }
+
+    public static void RecordDungeonTreasureChestGoldLooted(Mobile from, BaseTreasureChest chest, Item item)
+    {
+        RecordTreasureChestGoldLooted(from, chest, item, _dungeonTreasureChestGold, ActivityGoldSource.DungeonTreasureChestGold);
+    }
+
+    public static void RecordDungeonTreasureChestGoldLooted(Mobile from, LockableContainer chest, Item item)
+    {
+        RecordTreasureChestGoldLooted(from, chest, item, _dungeonTreasureChestGold, ActivityGoldSource.DungeonTreasureChestGold);
+    }
+
+    public static void ClearTreasureMapChestGold(TreasureMapChest chest)
+    {
+        ClearTreasureChestGold(_treasureMapChestGold, chest);
+    }
+
+    public static void ClearDungeonTreasureChestGold(BaseTreasureChest chest)
+    {
+        ClearTreasureChestGold(_dungeonTreasureChestGold, chest);
+    }
+
+    public static void ClearDungeonTreasureChestGold(LockableContainer chest)
+    {
+        ClearTreasureChestGold(_dungeonTreasureChestGold, chest);
+    }
+
+    public static void RecordTreasureMapChestOpened(Mobile from, TreasureMapChest chest)
+    {
+        if (from is not PlayerMobile player || chest == null || !ShouldTrackPlayer(player))
+        {
+            return;
+        }
+
+        var data = GetOrCreatePlayerData(player);
+        var timestamp = DateTime.UtcNow;
+        var region = Region.Find(chest.Location, chest.Map);
+
+        data.TotalTreasureMapChestsOpened++;
+        AddPlayerActivity(
+            data,
+            $"{timestamp:O}: Opened treasure map chest level {chest.Level} at {chest.Map} {chest.Location} region={region?.Name ?? "Unknown"}"
+        );
+        data.LastUpdatedUtc = timestamp;
+
+        if (DebugEnabled)
+        {
+            WriteActivityDebug(player, $"opened treasure map chest level {chest.Level} at {chest.Map} {chest.Location} region={region?.Name ?? "Unknown"}");
+        }
+    }
+
+    public static void RecordDungeonTreasureChestOpened(Mobile from, BaseTreasureChest chest)
+    {
+        if (from is not PlayerMobile player || chest == null || !ShouldTrackPlayer(player))
+        {
+            return;
+        }
+
+        var data = GetOrCreatePlayerData(player);
+        var timestamp = DateTime.UtcNow;
+        var region = Region.Find(chest.Location, chest.Map);
+
+        data.TotalDungeonTreasureChestsOpened++;
+        AddPlayerActivity(
+            data,
+            $"{timestamp:O}: Opened dungeon treasure chest {chest.Level} at {chest.Map} {chest.Location} region={region?.Name ?? "Unknown"}"
+        );
+        data.LastUpdatedUtc = timestamp;
+
+        if (DebugEnabled)
+        {
+            WriteActivityDebug(player, $"opened dungeon treasure chest {chest.Level} at {chest.Map} {chest.Location} region={region?.Name ?? "Unknown"}");
+        }
+    }
+
+    public static void RecordDungeonTreasureChestOpened(Mobile from, LockableContainer chest, string chestName)
+    {
+        if (from is not PlayerMobile player || chest == null || !ShouldTrackPlayer(player))
+        {
+            return;
+        }
+
+        var data = GetOrCreatePlayerData(player);
+        var timestamp = DateTime.UtcNow;
+        var region = Region.Find(chest.Location, chest.Map);
+        var resolvedName = chestName.DefaultIfNullOrEmpty(chest.GetType().Name);
+
+        data.TotalDungeonTreasureChestsOpened++;
+        AddPlayerActivity(
+            data,
+            $"{timestamp:O}: Opened dungeon treasure chest {resolvedName} at {chest.Map} {chest.Location} region={region?.Name ?? "Unknown"}"
+        );
+        data.LastUpdatedUtc = timestamp;
+
+        if (DebugEnabled)
+        {
+            WriteActivityDebug(player, $"opened dungeon treasure chest {resolvedName} at {chest.Map} {chest.Location} region={region?.Name ?? "Unknown"}");
+        }
     }
 
     /* BEGIN ACTIVITY TRACKING CUSTOMIZATION: player death and gold source tracking */
@@ -646,6 +996,99 @@ public static class ActivityTrackingService
         }
     }
 
+    /* BEGIN ACTIVITY TRACKING CUSTOMIZATION: status economy total now scans world currency, player-held currency, and account gold */
+    public static void RefreshKnownCurrencySnapshot(bool force = false)
+    {
+        var now = DateTime.UtcNow;
+
+        if (!force && now - _currencySnapshot.LastUpdatedUtc < CurrencySnapshotRefreshInterval)
+        {
+            return;
+        }
+
+        long totalGold = 0;
+        long totalChecks = 0;
+        long totalAccountGold = 0;
+        var goldStackCount = 0;
+        var checkCount = 0;
+        var virtualAccountCount = 0;
+
+        foreach (var item in World.Items.Values)
+        {
+            if (item == null || item.Deleted || !ShouldCountCurrencyItem(item))
+            {
+                continue;
+            }
+
+            switch (item)
+            {
+                case Gold gold:
+                    totalGold += gold.Amount;
+                    goldStackCount++;
+                    break;
+                case BankCheck check:
+                    totalChecks += check.Worth;
+                    checkCount++;
+                    break;
+            }
+        }
+
+        if (AccountGold.Enabled)
+        {
+            foreach (var account in Accounts.GetAccounts())
+            {
+                if (account == null)
+                {
+                    continue;
+                }
+
+                var balance = account.GetTotalGold();
+                if (balance <= 0)
+                {
+                    continue;
+                }
+
+                totalAccountGold += balance;
+                virtualAccountCount++;
+            }
+        }
+
+        _currencySnapshot = new CurrencySnapshot
+        {
+            LastUpdatedUtc = now,
+            GoldItemTotal = totalGold,
+            BankCheckTotal = totalChecks,
+            VirtualAccountGoldTotal = totalAccountGold,
+            GoldStackCount = goldStackCount,
+            BankCheckCount = checkCount,
+            VirtualAccountCount = virtualAccountCount
+        };
+    }
+
+    private static void EnsureCurrencySnapshotCurrent()
+    {
+        RefreshKnownCurrencySnapshot();
+    }
+
+    private static bool ShouldCountCurrencyItem(Item item)
+    {
+        if (item.Map == Map.Internal)
+        {
+            return false;
+        }
+
+        var root = item.RootParent;
+
+        return root switch
+        {
+            null         => true,
+            PlayerMobile => true,
+            Item         => BaseHouse.FindHouseAt(item) != null,
+            _            => false
+        };
+    }
+    /* END ACTIVITY TRACKING CUSTOMIZATION */
+
     private static void RecordGoldEarned(
         PlayerMobile player,
         int amount,
@@ -669,6 +1112,12 @@ public static class ActivityTrackingService
                 break;
             case ActivityGoldSource.NpcVendorSale:
                 data.TotalNpcVendorGoldEarned += amount;
+                break;
+            case ActivityGoldSource.TreasureMapChestGold:
+                data.TotalTreasureMapChestGoldLooted += amount;
+                break;
+            case ActivityGoldSource.DungeonTreasureChestGold:
+                data.TotalDungeonTreasureChestGoldLooted += amount;
                 break;
         }
 
@@ -817,6 +1266,138 @@ public static class ActivityTrackingService
             AddPlayerActivity(data, $"{timestamp:O}: Killed {creatureTypeName} ({creature.Name ?? creatureTypeName}) in {creature.Region?.Name ?? "Unknown"}");
             data.LastUpdatedUtc = timestamp;
         }
+    }
+
+    private static void RecordHarvestYield(Mobile from, Item item, bool mining)
+    {
+        if (from is not PlayerMobile player || item == null || !ShouldTrackPlayer(player))
+        {
+            return;
+        }
+
+        var data = GetOrCreatePlayerData(player);
+        var timestamp = DateTime.UtcNow;
+        var quantity = item.Amount > 0 ? item.Amount : 1;
+        var typeName = item.GetType().Name;
+        var totals = mining ? data.MiningMaterialTotals : data.LumberMaterialTotals;
+
+        totals[typeName] = totals.TryGetValue(typeName, out var current) ? current + quantity : quantity;
+
+        if (mining)
+        {
+            data.TotalMiningMaterials += quantity;
+            AddPlayerActivity(data, $"{timestamp:O}: Mined {quantity}x {typeName}");
+        }
+        else
+        {
+            data.TotalLumberMaterials += quantity;
+            AddPlayerActivity(data, $"{timestamp:O}: Chopped {quantity}x {typeName}");
+        }
+
+        data.LastUpdatedUtc = timestamp;
+
+        if (DebugEnabled)
+        {
+            WriteActivityDebug(player, $"{(mining ? "mined" : "chopped")} {quantity}x {typeName}");
+        }
+    }
+
+    private static IReadOnlyDictionary<string, int> BuildAggregateMaterialTotals(bool mining)
+    {
+        var totals = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var data in _players.Values)
+        {
+            var source = mining ? data.MiningMaterialTotals : data.LumberMaterialTotals;
+
+            foreach (var kvp in source)
+            {
+                totals[kvp.Key] = totals.TryGetValue(kvp.Key, out var current) ? current + kvp.Value : kvp.Value;
+            }
+        }
+
+        return totals;
+    }
+
+    private static void RegisterTreasureChestGold(
+        Dictionary<uint, TreasureChestGoldRecord> records,
+        Container chest,
+        Gold gold,
+        string chestType
+    )
+    {
+        if (chest == null || gold == null || gold.Amount <= 0)
+        {
+            return;
+        }
+
+        records[chest.Serial.Value] = new TreasureChestGoldRecord
+        {
+            ChestSerial = chest.Serial.Value,
+            ChestType = chestType,
+            RegionName = Region.Find(chest.Location, chest.Map)?.Name ?? "Unknown",
+            Map = chest.Map?.ToString() ?? "Unknown",
+            Location = chest.Location,
+            RemainingGold = gold.Amount
+        };
+    }
+
+    private static void RecordTreasureChestGoldLooted(
+        Mobile from,
+        Container chest,
+        Item item,
+        Dictionary<uint, TreasureChestGoldRecord> records,
+        ActivityGoldSource source
+    )
+    {
+        if (from is not PlayerMobile player || chest == null || item is not Gold gold || !ShouldTrackPlayer(player))
+        {
+            return;
+        }
+
+        if (!records.TryGetValue(chest.Serial.Value, out var record) || record.RemainingGold <= 0)
+        {
+            return;
+        }
+
+        var creditedGold = Math.Min(gold.Amount, record.RemainingGold);
+
+        if (creditedGold <= 0)
+        {
+            return;
+        }
+
+        record.RemainingGold -= creditedGold;
+
+        if (record.RemainingGold <= 0)
+        {
+            records.Remove(chest.Serial.Value);
+        }
+
+        RecordGoldEarned(
+            player,
+            creditedGold,
+            source,
+            record.ChestSerial,
+            record.ChestType,
+            record.ChestType,
+            new ActivityLocation
+            {
+                RegionName = player.Region?.Name ?? record.RegionName,
+                Map = player.Map?.ToString() ?? record.Map,
+                Location = player.Location
+            }
+        );
+    }
+
+    private static void ClearTreasureChestGold(Dictionary<uint, TreasureChestGoldRecord> records, Container chest)
+    {
+        if (chest == null)
+        {
+            return;
+        }
+
+        records.Remove(chest.Serial.Value);
     }
 
     /* BEGIN ACTIVITY TRACKING CUSTOMIZATION: cap per-player activity history for long server uptimes */
@@ -1200,6 +1781,35 @@ public static class ActivityTrackingService
     }
     /* END ACTIVITY TRACKING CUSTOMIZATION */
 
+    private static void WriteActivityDebug(PlayerMobile player, string detail)
+    {
+        if (player == null || string.IsNullOrWhiteSpace(detail))
+        {
+            return;
+        }
+
+        var accountName = player.Account?.Username ?? "Unknown";
+        var summary = $"[ActivityTracking] {DateTime.UtcNow:O}: Player {player.Name}/{accountName}/{player.Serial.Value} {detail}.";
+
+        try
+        {
+            Utility.PushColor(ConsoleColor.Blue);
+            _logger.Information(summary);
+        }
+        finally
+        {
+            Utility.PopColor();
+        }
+
+        foreach (var ns in NetState.Instances)
+        {
+            if (ns.Mobile is PlayerMobile pm && pm.AccessLevel >= AccessLevel.Counselor)
+            {
+                pm.SendMessage(0x35, summary);
+            }
+        }
+    }
+
     /* BEGIN ACTIVITY TRACKING CUSTOMIZATION: colored skill milestone debug output */
     public static void WriteSkillDebug(PlayerMobile player, SkillName skill, int milestoneLevel)
     {
@@ -1247,9 +1857,27 @@ public static class ActivityTrackingService
 
         public int TotalDeaths { get; set; }
 
+        public int TotalCraftingActions { get; set; }
+
+        public int TotalCraftedQuantity { get; set; }
+
+        public int TotalFishingCatches { get; set; }
+
+        public int TotalTreasureMapChestsOpened { get; set; }
+
+        public int TotalMiningMaterials { get; set; }
+
+        public int TotalLumberMaterials { get; set; }
+
+        public int TotalDungeonTreasureChestsOpened { get; set; }
+
         public long TotalGoldEarned { get; set; }
 
         public long TotalMonsterGoldLooted { get; set; }
+
+        public long TotalTreasureMapChestGoldLooted { get; set; }
+
+        public long TotalDungeonTreasureChestGoldLooted { get; set; }
 
         public long TotalNpcVendorGoldEarned { get; set; }
 
@@ -1286,6 +1914,10 @@ public static class ActivityTrackingService
         public Dictionary<string, int> MonsterKills { get; set; } = new();
 
         public Dictionary<string, List<SkillMilestoneRecord>> SkillMilestones { get; set; } = new();
+
+        public Dictionary<string, int> MiningMaterialTotals { get; set; } = new();
+
+        public Dictionary<string, int> LumberMaterialTotals { get; set; } = new();
 
         public HashSet<string> ExploredRegionNames { get; set; } = new();
 
@@ -1349,6 +1981,16 @@ public static class ActivityTrackingService
         public int RemainingGold { get; set; }
     }
 
+    private sealed class TreasureChestGoldRecord
+    {
+        public uint ChestSerial { get; set; }
+        public string ChestType { get; set; }
+        public string RegionName { get; set; }
+        public string Map { get; set; }
+        public Point3D Location { get; set; }
+        public int RemainingGold { get; set; }
+    }
+
     private sealed class ActivityLocation
     {
         public string RegionName { get; set; }
@@ -1359,7 +2001,9 @@ public static class ActivityTrackingService
     private enum ActivityGoldSource
     {
         MonsterCorpse,
-        NpcVendorSale
+        NpcVendorSale,
+        TreasureMapChestGold,
+        DungeonTreasureChestGold
     }
 
     private enum ActivityGoldSink
@@ -1375,6 +2019,21 @@ public static class ActivityTrackingService
         public long Balance { get; set; }
         public DateTime LastUpdatedUtc { get; set; }
     }
+
+    /* BEGIN ACTIVITY TRACKING CUSTOMIZATION: cached world currency snapshot for status reporting */
+    private sealed class CurrencySnapshot
+    {
+        public DateTime LastUpdatedUtc { get; set; }
+        public long GoldItemTotal { get; set; }
+        public long BankCheckTotal { get; set; }
+        public long VirtualAccountGoldTotal { get; set; }
+        public int GoldStackCount { get; set; }
+        public int BankCheckCount { get; set; }
+        public int VirtualAccountCount { get; set; }
+
+        public long TotalCurrency => GoldItemTotal + BankCheckTotal + VirtualAccountGoldTotal;
+    }
+    /* END ACTIVITY TRACKING CUSTOMIZATION */
 }
 
 public sealed class SkillMilestoneRecord

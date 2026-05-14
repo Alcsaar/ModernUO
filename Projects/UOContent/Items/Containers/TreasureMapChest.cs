@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using ModernUO.Serialization;
 using Server.Collections;
 using Server.ContextMenus;
+using Server.Custom.Engines.ActivityTracking;
 using Server.Engines.PartySystem;
 using Server.Gumps;
 using Server.Network;
@@ -163,7 +164,14 @@ public partial class TreasureMapChest : LockableContainer
         {
             cont.LockLevel = ILockpickable.CannotPick;
 
-            cont.DropItem(new Gold(Utility.RandomMinMax(50, 100)));
+            var gold = new Gold(Utility.RandomMinMax(50, 100));
+            cont.DropItem(gold);
+            /* BEGIN ACTIVITY TRACKING CUSTOMIZATION: register naturally spawned treasure map chest gold for later loot credit */
+            if (cont is TreasureMapChest treasureMapChest)
+            {
+                ActivityTrackingService.RegisterTreasureMapChestGold(treasureMapChest, gold);
+            }
+            /* END ACTIVITY TRACKING CUSTOMIZATION */
 
             if (Utility.RandomDouble() < 0.75)
             {
@@ -193,7 +201,14 @@ public partial class TreasureMapChest : LockableContainer
             // if (Core.SA)
             // cont.DropItem( new Gold( level * 5000 ) );
             // else
-            cont.DropItem(new Gold(level * 1000));
+            var gold = new Gold(level * 1000);
+            cont.DropItem(gold);
+            /* BEGIN ACTIVITY TRACKING CUSTOMIZATION: register naturally spawned treasure map chest gold for later loot credit */
+            if (cont is TreasureMapChest treasureMapChest)
+            {
+                ActivityTrackingService.RegisterTreasureMapChestGold(treasureMapChest, gold);
+            }
+            /* END ACTIVITY TRACKING CUSTOMIZATION */
 
             for (var i = 0; i < level * 5; ++i)
             {
@@ -355,8 +370,10 @@ public partial class TreasureMapChest : LockableContainer
         return false;
     }
 
-    public override bool CheckItemUse(Mobile from, Item item) =>
-        CheckLoot(from, item != this) && base.CheckItemUse(from, item);
+    public override bool CheckItemUse(Mobile from, Item item)
+    {
+        return CheckLoot(from, item != this) && base.CheckItemUse(from, item);
+    }
 
     public override bool CheckLift(Mobile from, Item item, ref LRReason reject) =>
         CheckLoot(from, true) && base.CheckLift(from, item, ref reject);
@@ -365,6 +382,10 @@ public partial class TreasureMapChest : LockableContainer
     {
         var notYetLifted = _lifted?.Contains(item) != true;
         from.RevealingAction();
+
+        /* BEGIN ACTIVITY TRACKING CUSTOMIZATION: credit only naturally spawned treasure map chest gold when lifted */
+        ActivityTrackingService.RecordTreasureMapChestGoldLooted(from, this, item);
+        /* END ACTIVITY TRACKING CUSTOMIZATION */
 
         if (notYetLifted)
         {
@@ -415,6 +436,7 @@ public partial class TreasureMapChest : LockableContainer
     {
         _expireTimer?.Stop();
         _expireTimer = null;
+        ActivityTrackingService.ClearTreasureMapChestGold(this);
         base.OnAfterDelete();
     }
 

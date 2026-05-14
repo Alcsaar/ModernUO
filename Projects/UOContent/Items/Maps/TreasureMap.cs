@@ -4,6 +4,7 @@ using System.IO;
 using ModernUO.Serialization;
 using Server.Collections;
 using Server.ContextMenus;
+using Server.Custom.Engines.ActivityTracking;
 using Server.Engines.Harvest;
 using Server.Mobiles;
 using Server.Network;
@@ -792,6 +793,9 @@ public partial class TreasureMap : MapItem
                 m_Chest.Temporary = false;
                 m_TreasureMap.Completed = true;
                 m_TreasureMap.CompletedBy = m_From;
+                /* BEGIN ACTIVITY TRACKING CUSTOMIZATION: treat treasure map completion as the moment the chest is successfully dug up */
+                ActivityTrackingService.RecordTreasureMapCompleted(m_From, m_Chest);
+                /* END ACTIVITY TRACKING CUSTOMIZATION */
 
                 var spawns = m_TreasureMap.Level switch
                 {
