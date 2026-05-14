@@ -149,6 +149,7 @@ public static class ActivityTrackingService
         foreach (var playerData in _players.Values)
         {
             memory += playerData.Activities.Count * 192L;
+            memory += playerData.ExploredRegions.Count * 160L;
         }
         /* END ACTIVITY TRACKING CUSTOMIZATION */
 
@@ -916,6 +917,8 @@ public static class ActivityTrackingService
 
         public HashSet<string> ExploredRegionNames { get; set; } = new();
 
+        public Dictionary<string, RegionEntryRecord> ExploredRegions { get; set; } = new();
+
         public HashSet<string> ExploredLocationKeys { get; set; } = new();
 
         public List<string> Activities { get; set; } = new();
@@ -991,4 +994,12 @@ public sealed class SkillMilestoneRecord
 {
     public int MilestoneLevel { get; set; }
     public DateTime ReachedUtc { get; set; }
+}
+
+public sealed class RegionEntryRecord
+{
+    public string RegionName { get; set; }
+    public DateTime FirstEnteredUtc { get; set; }
+    public string Map { get; set; }
+    public Point3D Location { get; set; }
 }

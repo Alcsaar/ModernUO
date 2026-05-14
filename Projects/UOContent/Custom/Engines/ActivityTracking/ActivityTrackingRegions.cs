@@ -32,7 +32,17 @@ public static class ActivityTrackingRegions
 
         if (data.ExploredRegionNames.Add(regionName))
         {
-            data.LastUpdatedUtc = DateTime.UtcNow;
+            var timestamp = DateTime.UtcNow;
+
+            data.ExploredRegions[regionName] = new RegionEntryRecord
+            {
+                RegionName = regionName,
+                FirstEnteredUtc = timestamp,
+                Map = player.Map?.ToString() ?? "Unknown",
+                Location = player.Location
+            };
+
+            data.LastUpdatedUtc = timestamp;
             ActivityTrackingService.SavePlayerData();
         }
     }
