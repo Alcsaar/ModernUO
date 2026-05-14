@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using Server.Custom.Engines.ActivityTracking;
 using Server.Commands;
 using Server.Factions;
 using Server.Gumps;
@@ -1157,6 +1158,10 @@ namespace Server.Engines.Craft
                     }
 
                     from.AddToBackpack(item);
+
+                    /* BEGIN ACTIVITY TRACKING CUSTOMIZATION: record successful crafted items after they are created and placed */
+                    ActivityTrackingService.RecordCraftedItem(from, item, craftSystem, endquality);
+                    /* END ACTIVITY TRACKING CUSTOMIZATION */
 
                     if (from.AccessLevel > AccessLevel.Player)
                     {
