@@ -37,6 +37,9 @@ using Server.Spells.Sixth;
 using Server.Spells.Spellweaving;
 using Server.Systems.FeatureFlags;
 using Server.Targeting;
+/* BEGIN CUSTOM ACTIVITY TRACKING: expose the in-memory activity tracking service to skill milestone hooks */
+using Server.Custom.Engines.ActivityTracking;
+/* END CUSTOM ACTIVITY TRACKING */
 using BaseQuestGump = Server.Engines.MLQuests.Gumps.BaseQuestGump;
 using CalcMoves = Server.Movement.Movement;
 using QuestOfferGump = Server.Engines.MLQuests.Gumps.QuestOfferGump;
@@ -4156,6 +4159,10 @@ namespace Server.Mobiles
             {
                 MLQuestSystem.HandleSkillGain(this, skill);
             }
+
+            /* BEGIN CUSTOM ACTIVITY TRACKING: record skill milestone progress for achievement tracking */
+            ActivityTrackingService.RecordSkillMilestone(this, skill, oldBase);
+            /* END CUSTOM ACTIVITY TRACKING */
         }
 
         public override void OnAccessLevelChanged(AccessLevel oldLevel)

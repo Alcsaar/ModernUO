@@ -24,6 +24,9 @@ using Server.Spells.Necromancy;
 using Server.Spells.Sixth;
 using Server.Spells.Spellweaving;
 using Server.Targeting;
+/* BEGIN CUSTOM ACTIVITY TRACKING: expose the in-memory activity tracking service to creature death hooks */
+using Server.Custom.Engines.ActivityTracking;
+/* END CUSTOM ACTIVITY TRACKING */
 
 using Server.Engines.RelativeThreatSystem;
 using Server.Custom.Systems.CustomFeatureFlags;
@@ -3365,6 +3368,9 @@ namespace Server.Mobiles
                 }
 
                 var list = GetLootingRights(DamageEntries, HitsMax);
+                /* BEGIN CUSTOM ACTIVITY TRACKING: notify activity tracking service of this creature kill event */
+                ActivityTrackingService.RecordCreatureKill(this, list);
+                /* END CUSTOM ACTIVITY TRACKING */
                 var titles = new List<Mobile>();
                 var fame = new List<int>();
                 var karma = new List<int>();
