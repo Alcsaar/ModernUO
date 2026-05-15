@@ -6,4 +6,5 @@ public static class CustomFeatureFlagKeys
     public const string RelativeThreat = "relative_threat";
     public const string CreatureAutoDispel = "creature_auto_dispel";
     public const string TravelCodex = "travel_codex";
+    public const string SupplyStones = "supply_stones";
 }

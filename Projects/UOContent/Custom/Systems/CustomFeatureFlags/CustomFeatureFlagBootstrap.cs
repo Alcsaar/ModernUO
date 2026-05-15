@@ -30,12 +30,21 @@ public static class CustomFeatureFlagBootstrap
             defaultEnabled: false
 
         );
+
         CustomFeatureFlagManager.Register(
             CustomFeatureFlagKeys.TravelCodex,
             "Travel Codex",
             "Non-magery codex travel system",
             "Custom Systems",
             defaultEnabled: true
-);
+        );
+
+        CustomFeatureFlagManager.Register(
+            CustomFeatureFlagKeys.SupplyStones,
+            "Supply Stones",
+            "Player access to supply stones that generate resource bags",
+            "Special Systems",
+            defaultEnabled: false
+        );
     }
 }
