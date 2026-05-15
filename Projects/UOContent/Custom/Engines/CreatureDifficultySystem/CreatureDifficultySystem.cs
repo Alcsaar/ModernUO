@@ -43,6 +43,23 @@ public static class CreatureDifficultyService
         return result;
     }
 
+    public static CreatureDifficultyResult EvaluateCurrent(BaseCreature creature)
+    {
+        if (creature == null)
+        {
+            return CreatureDifficultyResult.Empty;
+        }
+
+        var type = creature.GetType();
+
+        if (_overrides.TryGetValue(type, out var overrideResult))
+        {
+            return overrideResult;
+        }
+
+        return CreatureDifficultyEvaluator.Evaluate(creature);
+    }
+
     public static void ClearCache()
     {
         _cache.Clear();
@@ -79,17 +96,17 @@ public static class CreatureDifficultyService
 
 public static class CreatureDifficultyEvaluator
 {
-    private const double DamageWeight = 1.5;
-    private const double WrestlingWeight = 0.04;
-    private const double TacticsWeight = 0.04;
-    private const double DexWeight = 0.003;
+    private const double DamageWeight = 2.2;
+    private const double WrestlingWeight = 0.25;
+    private const double TacticsWeight = 0.25;
+    private const double DexWeight = 0.02;
 
-    private const double HitsWeight = 0.07;
-    private const double VirtualArmorWeight = 0.24;
-    private const double MagicResistWeight = 0.11;
+    private const double HitsWeight = 0.05;
+    private const double VirtualArmorWeight = 0.45;
+    private const double MagicResistWeight = 0.20;
 
-    private const double MageryWeight = 0.16;
-    private const double EvalIntWeight = 0.15;
+    private const double MageryWeight = 0.40;
+    private const double EvalIntWeight = 0.40;
 
     public static CreatureDifficultyResult Evaluate(BaseCreature creature)
     {
@@ -104,6 +121,7 @@ public static class CreatureDifficultyEvaluator
         var specialScore = CreatureDifficultySpecialEvaluator.Evaluate(creature);
 
         var totalScore = offenseScore + defenseScore + magicScore + specialScore;
+        var threatScore = offenseScore + magicScore + specialScore + (defenseScore * 0.35);
         var tier = CreatureDifficultyMapper.MapToTier(totalScore);
 
         return new CreatureDifficultyResult
@@ -114,6 +132,8 @@ public static class CreatureDifficultyEvaluator
             DefenseScore = defenseScore,
             MagicScore = magicScore,
             SpecialScore = specialScore,
+            ThreatScore = RoundScore(threatScore),
+            DurabilityScore = defenseScore,
             HasOverride = false
         };
     }
@@ -285,32 +305,32 @@ public static class CreatureDifficultyMapper
 {
     public static int MapToTier(double score)
     {
-        if (score < 20.0)
+        if (score < 35.0)
         {
             return 0;
         }
 
-        if (score < 40.0)
+        if (score < 70.0)
         {
             return 1;
         }
 
-        if (score < 62.0)
+        if (score < 115.0)
         {
             return 2;
         }
 
-        if (score < 90.0)
+        if (score < 170.0)
         {
             return 3;
         }
 
-        if (score < 130.0)
+        if (score < 250.0)
         {
             return 4;
         }
 
-        if (score < 190.0)
+        if (score < 380.0)
         {
             return 5;
         }
@@ -329,6 +349,8 @@ public struct CreatureDifficultyResult
         DefenseScore = 0.0,
         MagicScore = 0.0,
         SpecialScore = 0.0,
+        ThreatScore = 0.0,
+        DurabilityScore = 0.0,
         HasOverride = false
     };
 
@@ -338,6 +360,8 @@ public struct CreatureDifficultyResult
     public double DefenseScore { get; set; }
     public double MagicScore { get; set; }
     public double SpecialScore { get; set; }
+    public double ThreatScore { get; set; }
+    public double DurabilityScore { get; set; }
     public bool HasOverride { get; set; }
 }
 
@@ -399,6 +423,8 @@ public static class CreatureDifficultyCommands
             from.SendMessage($"Defense: {result.DefenseScore:F2}");
             from.SendMessage($"Magic: {result.MagicScore:F2}");
             from.SendMessage($"Special: {result.SpecialScore:F2}");
+            from.SendMessage($"Threat: {result.ThreatScore:F2}");
+            from.SendMessage($"Durability: {result.DurabilityScore:F2}");
             from.SendMessage($"Abilities: {abilityCount}");
             from.SendMessage($"Override: {(result.HasOverride ? "Yes" : "No")}");
         }
