@@ -23,9 +23,12 @@ public static class TemplateSaverManager
     private static TemplateSaverState _state;
     private static DeletedTemplateArchiveState _deletedArchive;
     private static bool _initialized;
+    private static bool _loadedFromPersistence;
+    private static bool _legacyImportAttempted;
 
     public static void Configure()
     {
+        TemplateSaverPersistence.Configure();
         EnsureInitialized();
     }
 
@@ -42,8 +45,9 @@ public static class TemplateSaverManager
             Directory.CreateDirectory(directory);
         }
 
-        _state = JsonConfig.Deserialize<TemplateSaverState>(SavePath) ?? new TemplateSaverState();
-        _deletedArchive = JsonConfig.Deserialize<DeletedTemplateArchiveState>(DeletedArchivePath) ?? new DeletedTemplateArchiveState();
+        _state ??= new TemplateSaverState();
+        _deletedArchive ??= new DeletedTemplateArchiveState();
+        ImportLegacyJsonIfNeeded();
 
         _initialized = true;
     }
@@ -461,6 +465,9 @@ public static class TemplateSaverManager
 
         store.Templates.Add(restored);
         store.DeletedTemplates.RemoveAt(0);
+
+        // Player undo is intentionally limited to the most recent delete only.
+        store.DeletedTemplates.Clear();
         Save();
 
         message = $"Template '{restored.Name}' has been restored.";
@@ -672,17 +679,194 @@ public static class TemplateSaverManager
 
     public static int GetExtraSlots(Mobile owner) => GetExtraSlots(owner.Serial.Value);
 
+    public static string ExportJsonBackup()
+    {
+        EnsureInitialized();
+
+        var directory = Path.GetDirectoryName(SavePath);
+
+        if (!string.IsNullOrEmpty(directory) && !Directory.Exists(directory))
+        {
+            Directory.CreateDirectory(directory);
+        }
+
+        var timestamp = Core.Now.ToString("yyyyMMdd_HHmmss");
+        var statePath = Path.Combine(directory, $"template-saver-export-{timestamp}.json");
+        var deletedPath = Path.Combine(directory, $"template-saver-deleted-export-{timestamp}.json");
+
+        JsonConfig.Serialize(statePath, _state);
+        JsonConfig.Serialize(deletedPath, _deletedArchive);
+
+        return statePath;
+    }
+
     public static void Save()
     {
         EnsureInitialized();
-        JsonConfig.Serialize(SavePath, _state);
-        SaveDeletedArchive();
     }
 
     private static void SaveDeletedArchive()
     {
         EnsureInitialized();
-        JsonConfig.Serialize(DeletedArchivePath, _deletedArchive);
+    }
+
+    internal static void SerializePersistence(IGenericWriter writer)
+    {
+        EnsureInitialized();
+        TemplateSaverPersistenceSerializer.WriteState(writer, _state);
+        TemplateSaverPersistenceSerializer.WriteDeletedArchive(writer, _deletedArchive);
+    }
+
+    internal static void DeserializePersistence(IGenericReader reader)
+    {
+        _state = TemplateSaverPersistenceSerializer.ReadState(reader);
+        _deletedArchive = TemplateSaverPersistenceSerializer.ReadDeletedArchive(reader);
+        NormalizeLoadedState();
+        _loadedFromPersistence = true;
+        _initialized = true;
+    }
+
+    private static void ImportLegacyJsonIfNeeded()
+    {
+        if (_legacyImportAttempted || _loadedFromPersistence)
+        {
+            return;
+        }
+
+        _legacyImportAttempted = true;
+
+        var imported = false;
+
+        if (File.Exists(SavePath))
+        {
+            _state = JsonConfig.Deserialize<TemplateSaverState>(SavePath) ?? new TemplateSaverState();
+            imported = true;
+        }
+
+        if (File.Exists(DeletedArchivePath))
+        {
+            _deletedArchive = JsonConfig.Deserialize<DeletedTemplateArchiveState>(DeletedArchivePath) ??
+                new DeletedTemplateArchiveState();
+            imported = true;
+        }
+
+        if (imported)
+        {
+            NormalizeLoadedState();
+        }
+    }
+
+    private static void NormalizeLoadedState()
+    {
+        _state ??= new TemplateSaverState();
+        _state.Characters ??= new List<CharacterTemplateStore>();
+
+        for (var i = _state.Characters.Count - 1; i >= 0; i--)
+        {
+            var store = _state.Characters[i];
+
+            if (store == null || store.OwnerSerial == 0)
+            {
+                _state.Characters.RemoveAt(i);
+                continue;
+            }
+
+            store.Templates ??= new List<CharacterTemplateEntry>();
+            store.DeletedTemplates ??= new List<DeletedCharacterTemplateEntry>();
+
+            NormalizeTemplates(store.Templates, store.OwnerSerial, store.OwnerName);
+            NormalizeDeletedTemplates(store.DeletedTemplates, store.OwnerSerial, store.OwnerName);
+        }
+
+        _deletedArchive ??= new DeletedTemplateArchiveState();
+        _deletedArchive.Entries ??= new List<DeletedTemplateArchiveEntry>();
+
+        for (var i = _deletedArchive.Entries.Count - 1; i >= 0; i--)
+        {
+            var entry = _deletedArchive.Entries[i];
+
+            if (entry == null || entry.DeletedId == Guid.Empty || entry.Template == null)
+            {
+                _deletedArchive.Entries.RemoveAt(i);
+                continue;
+            }
+
+            NormalizeTemplate(entry.Template, entry.OwnerSerial, entry.OwnerName);
+        }
+    }
+
+    private static void NormalizeTemplates(
+        List<CharacterTemplateEntry> templates,
+        uint ownerSerial,
+        string ownerName
+    )
+    {
+        for (var i = templates.Count - 1; i >= 0; i--)
+        {
+            var template = templates[i];
+
+            if (template == null)
+            {
+                templates.RemoveAt(i);
+                continue;
+            }
+
+            NormalizeTemplate(template, ownerSerial, ownerName);
+        }
+    }
+
+    private static void NormalizeDeletedTemplates(
+        List<DeletedCharacterTemplateEntry> entries,
+        uint ownerSerial,
+        string ownerName
+    )
+    {
+        for (var i = entries.Count - 1; i >= 0; i--)
+        {
+            var entry = entries[i];
+
+            if (entry == null || entry.Template == null)
+            {
+                entries.RemoveAt(i);
+                continue;
+            }
+
+            if (entry.DeletedId == Guid.Empty)
+            {
+                entry.DeletedId = Guid.NewGuid();
+            }
+
+            NormalizeTemplate(entry.Template, ownerSerial, ownerName);
+        }
+    }
+
+    private static void NormalizeTemplate(CharacterTemplateEntry template, uint ownerSerial, string ownerName)
+    {
+        if (template.Id == Guid.Empty)
+        {
+            template.Id = Guid.NewGuid();
+        }
+
+        template.OwnerSerial = ownerSerial;
+
+        if (string.IsNullOrWhiteSpace(template.OwnerName))
+        {
+            template.OwnerName = ownerName;
+        }
+
+        template.Name = NormalizeTemplateName(template.Name);
+        template.Stats ??= new StatTemplateSnapshot();
+        template.Skills ??= new List<SkillTemplateSnapshot>();
+
+        for (var i = template.Skills.Count - 1; i >= 0; i--)
+        {
+            var skill = template.Skills[i];
+
+            if (skill == null || skill.SkillIndex < 0 || skill.Base <= 0.0)
+            {
+                template.Skills.RemoveAt(i);
+            }
+        }
     }
 
     private static void UpdateOwnerDisplayName(CharacterTemplateStore store, Mobile owner)

@@ -31,9 +31,12 @@ public static class TravelCodexManager
     private static readonly Dictionary<Serial, DateTime> _cooldowns = new();
     private static readonly Dictionary<Serial, TravelCastState> _activeCasts = new();
     private static readonly HashSet<TravelDiscoveryStone> _stones = new();
+    private static bool _loadedPlayerDataFromPersistence;
+    private static bool _legacyPlayerDataImportAttempted;
 
     public static void Configure()
     {
+        TravelCodexPersistence.Configure();
         TravelCodexSettings.Configure();
         TravelCodexCommands.Configure();
         EventSink.Movement += OnMovement;
@@ -762,11 +765,21 @@ public static class TravelCodexManager
     {
         try
         {
+            if (_loadedPlayerDataFromPersistence)
+            {
+                return;
+            }
+
+            if (_legacyPlayerDataImportAttempted)
+            {
+                return;
+            }
+
+            _legacyPlayerDataImportAttempted = true;
             _discoveries.Clear();
 
             if (!File.Exists(TravelCodexSettings.PlayerDataPath))
             {
-                SavePlayerData();
                 return;
             }
 
@@ -808,37 +821,66 @@ public static class TravelCodexManager
 
     public static void SavePlayerData()
     {
-        try
+        // Player discovery state is persisted by TravelCodexPersistence during world saves.
+    }
+
+    internal static void SerializePlayerData(IGenericWriter writer)
+    {
+        writer.WriteEncodedInt(_discoveries.Count);
+
+        foreach (var pair in _discoveries)
         {
-            if (!Directory.Exists(TravelCodexSettings.ConfigDirectory))
+            writer.Write(pair.Key);
+            writer.WriteEncodedInt(pair.Value?.Count ?? 0);
+
+            if (pair.Value == null)
             {
-                Directory.CreateDirectory(TravelCodexSettings.ConfigDirectory);
+                continue;
             }
 
-            var file = new TravelCodexPlayerDataFile();
-
-            foreach (var pair in _discoveries)
+            foreach (var destinationKey in pair.Value)
             {
-                var record = new TravelCodexPlayerRecord
-                {
-                    PlayerSerial = pair.Key
-                };
+                writer.Write(destinationKey);
+            }
+        }
+    }
 
-                foreach (var destinationKey in pair.Value)
+    internal static void DeserializePlayerData(IGenericReader reader)
+    {
+        _discoveries.Clear();
+
+        var count = reader.ReadEncodedInt();
+
+        for (var i = 0; i < count; i++)
+        {
+            var playerSerial = reader.ReadString();
+            var destinationCount = reader.ReadEncodedInt();
+
+            if (string.IsNullOrWhiteSpace(playerSerial))
+            {
+                for (var j = 0; j < destinationCount; j++)
                 {
-                    record.DiscoveredDestinationKeys.Add(destinationKey);
+                    reader.ReadString();
                 }
 
-                record.DiscoveredDestinationKeys.Sort(StringComparer.OrdinalIgnoreCase);
-                file.Players.Add(record);
+                continue;
             }
 
-            file.Players.Sort(static (a, b) => string.Compare(a.PlayerSerial, b.PlayerSerial, StringComparison.OrdinalIgnoreCase));
-            JsonConfig.Serialize(TravelCodexSettings.PlayerDataPath, file);
+            var set = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            for (var j = 0; j < destinationCount; j++)
+            {
+                var key = NormalizeKey(reader.ReadString());
+
+                if (key != null)
+                {
+                    set.Add(key);
+                }
+            }
+
+            _discoveries[playerSerial] = set;
         }
-        catch (Exception ex)
-        {
-            Logger.Error(ex, "Failed to save Travel Codex player discovery data");
-        }
+
+        _loadedPlayerDataFromPersistence = true;
     }
 }
