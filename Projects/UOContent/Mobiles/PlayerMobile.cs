@@ -40,7 +40,7 @@ using Server.Targeting;
 /* BEGIN CUSTOM ACTIVITY TRACKING: expose the in-memory activity tracking service to player hooks */
 using Server.Custom.Engines.ActivityTracking;
 /* END CUSTOM ACTIVITY TRACKING */
-using BaseQuestGump = Server.Engines.MLQuests.Gumps.BaseQuestGump;
+using BaseMLQuestGump = Server.Engines.MLQuests.Gumps.BaseMLQuestGump;
 using CalcMoves = Server.Movement.Movement;
 using QuestOfferGump = Server.Engines.MLQuests.Gumps.QuestOfferGump;
 using RankDefinition = Server.Guilds.RankDefinition;
@@ -687,7 +687,7 @@ namespace Server.Mobiles
         [CommandProperty(AccessLevel.GameMaster)]
         public bool Young
         {
-            get => GetFlag(PlayerFlag.Young);
+            get => ContentFeatureFlags.YoungPlayerSystem && GetFlag(PlayerFlag.Young);
             set
             {
                 SetFlag(PlayerFlag.Young, value);
@@ -2013,7 +2013,7 @@ namespace Server.Mobiles
 
             if (CheckAlive() && house?.IsOwner(this) == true && house.InternalizedVendors.Count > 0 && NetState is NetState { } ns)
             {
-                ns.SendGump(new ReclaimVendorGump(house));
+                ReclaimVendorGump.DisplayTo(this, house);
             }
         }
 
@@ -4007,7 +4007,7 @@ namespace Server.Mobiles
         {
             if (NetState != null)
             {
-                BaseQuestGump.CloseOtherGumps(this);
+                BaseMLQuestGump.CloseOtherGumps(this);
                 var gumps = this.GetGumps();
                 gumps.Close<QuestLogDetailedGump>();
                 gumps.Close<QuestLogGump>();

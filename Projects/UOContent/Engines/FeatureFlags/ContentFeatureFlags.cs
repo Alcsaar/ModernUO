@@ -16,4 +16,6 @@ public static class ContentFeatureFlags
 
     public static bool RelativeThreatDisplay { get; set; } = true;
     public static bool TemplateSaves { get; set; } = true;
+    public static bool YoungPlayerSystem { get; set; } = true;
+    public static bool BitmapPathfindingCache { get; set; } = true;
 }

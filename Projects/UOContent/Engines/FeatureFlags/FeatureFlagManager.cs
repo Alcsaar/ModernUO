@@ -979,6 +979,8 @@ public static class FeatureFlagManager
             // Custom Systems
             "relative_threat_display" => ContentFeatureFlags.RelativeThreatDisplay = enabled,
             "template_saves" => ContentFeatureFlags.TemplateSaves = enabled,
+            "young_player_system"    => ContentFeatureFlags.YoungPlayerSystem = enabled,
+            "bitmap_pathfinding_cache" => ContentFeatureFlags.BitmapPathfindingCache = enabled,
         };
     }
 

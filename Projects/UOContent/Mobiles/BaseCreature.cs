@@ -2264,7 +2264,7 @@ namespace Server.Mobiles
 
         public void ChangeAIType(AIType newAI)
         {
-            AIObject?._timer.Stop();
+            AIObject?.AITimer.Stop();
 
             if (ForcedAI != null)
             {
@@ -2387,7 +2387,7 @@ namespace Server.Mobiles
         {
             if (AIObject != null)
             {
-                AIObject._timer?.Stop();
+                AIObject.AITimer?.Stop();
                 AIObject = null;
             }
 
@@ -3358,22 +3358,15 @@ namespace Server.Mobiles
 
             if (!Summoned && !NoKillAwards)
             {
-                var totalFame = Fame / 100;
-                var totalKarma = -Karma / 100;
-
-                if (Map == Map.Felucca)
-                {
-                    totalFame += totalFame / 10 * 3;
-                    totalKarma += totalKarma / 10 * 3;
-                }
+                var (totalFame, totalKarma) = Titles.ComputeKillAwards(this, Map);
 
                 var list = GetLootingRights(DamageEntries, HitsMax);
                 /* BEGIN CUSTOM ACTIVITY TRACKING: notify activity tracking service of this creature kill event */
                 ActivityTrackingService.RecordCreatureKill(this, list);
                 /* END CUSTOM ACTIVITY TRACKING */
-                var titles = new List<Mobile>();
-                var fame = new List<int>();
-                var karma = new List<int>();
+                using var titles = PooledRefList<Mobile>.Create();
+                var fame = PooledRefList<int>.Create();
+                var karma = PooledRefList<int>.Create();
 
                 var givenQuestKill = false;
                 var givenFactionKill = false;
@@ -3388,9 +3381,19 @@ namespace Server.Mobiles
                         continue;
                     }
 
-                    var party = Engines.PartySystem.Party.Get(ds.m_Mobile);
+                    if (!Core.UOR)
+                    {
+                        var killer = LastKiller is BaseCreature bc ? bc.GetDamageMaster(this) : LastKiller;
 
-                    if (party != null)
+                        if (ds.m_Mobile == killer)
+                        {
+                            // If the titles system gets feature flagged, it will be supported
+                            titles.Add(ds.m_Mobile);
+                            fame.Add(totalFame);
+                            karma.Add(totalKarma);
+                        }
+                    }
+                    else if (Engines.PartySystem.Party.Get(ds.m_Mobile) is { } party)
                     {
                         var divedFame = totalFame / party.Members.Count;
                         var divedKarma = totalKarma / party.Members.Count;
@@ -3468,6 +3471,9 @@ namespace Server.Mobiles
                     Titles.AwardFame(titles[i], fame[i], true);
                     Titles.AwardKarma(titles[i], karma[i], true);
                 }
+
+                fame.Dispose();
+                karma.Dispose();
             }
 
             base.OnDeath(c);
@@ -3942,6 +3948,8 @@ namespace Server.Mobiles
 
             OnAfterResurrect();
 
+            AIObject?.Activate();
+
             var owner = ControlMaster;
 
             if (owner?.Deleted == false && owner.Map == Map && owner.InRange(this, 12) && CanSee(owner) && InLOS(owner))
@@ -3993,7 +4001,7 @@ namespace Server.Mobiles
             {
                 SetLocation(Home, true);
 
-                if (!Map.GetSector(X, Y).Active)
+                if (PlayerRangeSensitive && !Map.GetSector(X, Y).Active)
                 {
                     AIObject?.Deactivate();
                 }
