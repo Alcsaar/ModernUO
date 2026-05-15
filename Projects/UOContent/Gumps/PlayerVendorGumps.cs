@@ -124,7 +124,7 @@ namespace Server.Gumps
                     _vendor.HoldGold += _vi.Price;
 
                     /* BEGIN CUSTOM ACTIVITY TRACKING: player vendor sales are logging-only and do not count as earned gold */
-                    ActivityTrackingService.RecordPlayerVendorSale(from, m_Vendor, m_VI.Item, m_VI, m_VI.Price);
+                    ActivityTrackingService.RecordPlayerVendorSale(from, _vendor, _vi.Item, _vi, _vi.Price);
                     /* END CUSTOM ACTIVITY TRACKING */
 
                     from.SendLocalizedMessage(503201); // You take the item.
