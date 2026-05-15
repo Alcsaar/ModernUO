@@ -1,6 +1,7 @@
 using System;
 using Server.Custom.Engines.CreatureDifficultySystem;
 using Server.Custom.Systems.CustomFeatureFlags;
+using Server.Items;
 using Server.Mobiles;
 
 namespace Server.Engines.RelativeThreatSystem;
@@ -226,25 +227,41 @@ public static class RelativeThreatService
             return 1.0;
         }
 
+        var bardDifficulty = BaseInstrument.GetBaseDifficulty(creature);
+        var bardSkill = GetEffectiveBardSkill(playerPower);
+
         var bardLimited =
             creature.BardImmune ||
             creature.Unprovokable ||
             creature.Uncalmable ||
             creature.AreaPeaceImmune;
 
-        if (!bardLimited)
+        if (bardLimited)
+        {
+            return IsPrimaryBard(playerPower) ? 1.45 : 1.20;
+        }
+
+        if (bardDifficulty <= 80.0 || bardSkill <= 0.0)
         {
             return 1.0;
         }
 
-        if (playerPower.PrimaryStyle == "Bard" ||
-            playerPower.PrimaryStyle == "Bard Mage" ||
-            playerPower.PrimaryStyle == "Bard Dexxer")
+        if (bardDifficulty > bardSkill + 30.0)
         {
-            return 1.35;
+            return IsPrimaryBard(playerPower) ? 1.30 : 1.12;
         }
 
-        return 1.15;
+        if (bardDifficulty > bardSkill + 15.0)
+        {
+            return IsPrimaryBard(playerPower) ? 1.18 : 1.07;
+        }
+
+        if (bardDifficulty + 20.0 < bardSkill)
+        {
+            return 0.92;
+        }
+
+        return 1.0;
     }
 
     private static double GetTamerThreatMultiplier(
@@ -270,6 +287,28 @@ public static class RelativeThreatService
         }
 
         return multiplier;
+    }
+
+    private static bool IsPrimaryBard(PlayerCombatPowerResult playerPower)
+        => playerPower.PrimaryStyle == "Bard" ||
+            playerPower.PrimaryStyle == "Bard Mage" ||
+            playerPower.PrimaryStyle == "Bard Dexxer";
+
+    private static double GetEffectiveBardSkill(PlayerCombatPowerResult playerPower)
+    {
+        if (playerPower.BardScore <= 0.0)
+        {
+            return 0.0;
+        }
+
+        var estimated = playerPower.BardScore / 1.46;
+
+        if (estimated > 120.0)
+        {
+            return 120.0;
+        }
+
+        return estimated;
     }
 
     private static int GetCasterThreatTier(BaseCreature creature)

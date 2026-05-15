@@ -1,3 +1,5 @@
+using System;
+using Server.Custom.Engines.CreatureDifficultySystem;
 using Server.Mobiles;
 
 namespace Server.Engines.RelativeThreatSystem;
@@ -7,6 +9,7 @@ public static class PlayerCombatPowerEvaluator
     private const double MinimumActiveSkill = 30.0;
     private const double MinimumSupportSkill = 40.0;
     private const double ScoreFloor = 10.0;
+    private const double MaximumPetContribution = 140.0;
 
     public static PlayerCombatPowerResult Evaluate(Mobile player)
     {
@@ -208,13 +211,16 @@ public static class PlayerCombatPowerEvaluator
             return 0.0;
         }
 
-        var petMultiplier = HasActivePet(player) ? 1.0 : 0.25;
+        var petContribution = GetActivePetThreatScore(player);
+        var petMultiplier = petContribution > 0.0 ? 1.0 : 0.25;
 
         var score =
             ((taming * 0.55) +
             (lore * 0.50) +
             (vet * 0.20) +
             (player.Int * 0.04)) * petMultiplier;
+
+        score += petContribution * GetTamerControlMultiplier(taming, lore, vet);
 
         return score;
     }
@@ -287,7 +293,10 @@ public static class PlayerCombatPowerEvaluator
 
     private static double EvaluateTamerTemplate(double skillValue)
     {
-        return (skillValue * 0.55) + (skillValue * 0.50) + (skillValue * 0.20) + (skillValue * 0.04);
+        var baseScore = (skillValue * 0.55) + (skillValue * 0.50) + (skillValue * 0.20) + (skillValue * 0.04);
+        var assumedPetScore = GetTemplatePetThreatScore(skillValue);
+
+        return baseScore + (assumedPetScore * GetTamerControlMultiplier(skillValue, skillValue, skillValue));
     }
 
     private static double EvaluateBardTemplate(double skillValue)
@@ -335,12 +344,14 @@ public static class PlayerCombatPowerEvaluator
         return 0.02;
     }
 
-    private static bool HasActivePet(Mobile player)
+    private static double GetActivePetThreatScore(Mobile player)
     {
         if (player is not PlayerMobile pm || pm.AllFollowers == null)
         {
-            return false;
+            return 0.0;
         }
+
+        var total = 0.0;
 
         foreach (var follower in pm.AllFollowers)
         {
@@ -352,11 +363,66 @@ public static class PlayerCombatPowerEvaluator
                 pet.Map != null &&
                 pet.Map != Map.Internal)
             {
-                return true;
+                var petDifficulty = CreatureDifficultyService.EvaluateCurrent(pet);
+                var petScore = petDifficulty.ThreatScore > 0.0 ? petDifficulty.ThreatScore : petDifficulty.Score;
+                var slotScalar = pet.ControlSlots <= 1 ? 0.35 : Math.Min(1.0, pet.ControlSlots * 0.20);
+
+                total += petScore * slotScalar;
+
+                if (total >= MaximumPetContribution)
+                {
+                    return MaximumPetContribution;
+                }
             }
         }
 
-        return false;
+        return total;
+    }
+
+    private static double GetTemplatePetThreatScore(double skillValue)
+    {
+        if (skillValue >= 100.0)
+        {
+            return 115.0;
+        }
+
+        if (skillValue >= 90.0)
+        {
+            return 90.0;
+        }
+
+        if (skillValue >= 70.0)
+        {
+            return 55.0;
+        }
+
+        return 25.0;
+    }
+
+    private static double GetTamerControlMultiplier(double taming, double lore, double veterinary)
+    {
+        var combined = (taming + lore) * 0.5;
+        var multiplier = 0.45;
+
+        if (combined >= 100.0)
+        {
+            multiplier = 0.70;
+        }
+        else if (combined >= 90.0)
+        {
+            multiplier = 0.62;
+        }
+        else if (combined >= 70.0)
+        {
+            multiplier = 0.52;
+        }
+
+        if (veterinary >= 80.0)
+        {
+            multiplier += 0.05;
+        }
+
+        return multiplier;
     }
 
     private static void UpdateTopTwo(
