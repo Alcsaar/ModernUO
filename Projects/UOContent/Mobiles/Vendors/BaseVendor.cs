@@ -12,6 +12,9 @@ using Server.Network;
 using Server.Regions;
 using Server.Logging;
 using Server.Systems.FeatureFlags;
+/* BEGIN CUSTOM ACTIVITY TRACKING: allow NPC vendor sell transactions to credit earned gold */
+using Server.Custom.Engines.ActivityTracking;
+/* END CUSTOM ACTIVITY TRACKING */
 
 namespace Server.Mobiles
 {
@@ -275,6 +278,12 @@ namespace Server.Mobiles
                 return false;
             }
 
+            /* BEGIN CUSTOM ACTIVITY TRACKING: capture NPC vendor purchases as gold leaving the economy */
+            var activityPurchaseLines = buyer.AccessLevel >= AccessLevel.GameMaster
+                ? null
+                : BuildActivityPurchaseLines(buyer, validBuy, info);
+            /* END CUSTOM ACTIVITY TRACKING */
+
             buyer.PlaySound(0x32);
 
             cont = buyer.Backpack ?? buyer.BankBox;
@@ -347,6 +356,13 @@ namespace Server.Mobiles
                 }
             } // foreach
 
+            /* BEGIN CUSTOM ACTIVITY TRACKING: record successful NPC vendor purchase after payment and item delivery */
+            if (buyer.AccessLevel < AccessLevel.GameMaster)
+            {
+                ActivityTrackingService.RecordNpcVendorGoldSpent(buyer, this, totalCost, activityPurchaseLines);
+            }
+            /* END CUSTOM ACTIVITY TRACKING */
+
             if (fullPurchase)
             {
                 if (buyer.AccessLevel >= AccessLevel.GameMaster)
@@ -401,6 +417,127 @@ namespace Server.Mobiles
             return true;
         }
 
+        /* BEGIN CUSTOM ACTIVITY TRACKING: build NPC vendor purchase detail lines for later economy logging */
+        private List<ActivityTrackingService.VendorSaleLine> BuildActivityPurchaseLines(
+            Mobile buyer,
+            List<BuyItemResponse> validBuy,
+            IShopSellInfo[] sellInfo
+        )
+        {
+            var lines = new List<ActivityTrackingService.VendorSaleLine>(validBuy.Count);
+
+            for (var i = 0; i < validBuy.Count; i++)
+            {
+                var buy = validBuy[i];
+                var ser = buy.Serial;
+                var amount = buy.Amount;
+
+                if (amount <= 0)
+                {
+                    continue;
+                }
+
+                if (ser.IsItem)
+                {
+                    var item = World.FindItem(ser);
+
+                    if (item == null)
+                    {
+                        continue;
+                    }
+
+                    var gbi = LookupDisplayObject(item);
+
+                    if (gbi != null)
+                    {
+                        var quantity = Math.Min(amount, gbi.Amount);
+                        AddActivityPurchaseLine(lines, buyer, ser.Value, gbi.Type.Name, gbi.Name, quantity, gbi.Price);
+                    }
+                    else if (item != BuyPack && item.IsChildOf(BuyPack))
+                    {
+                        var quantity = Math.Min(amount, item.Amount);
+
+                        if (quantity <= 0)
+                        {
+                            continue;
+                        }
+
+                        for (var j = 0; j < sellInfo.Length; j++)
+                        {
+                            var ssi = sellInfo[j];
+
+                            if (!ssi.IsSellable(item) || !ssi.IsResellable(item))
+                            {
+                                continue;
+                            }
+
+                            AddActivityPurchaseLine(
+                                lines,
+                                buyer,
+                                item.Serial.Value,
+                                item.GetType().Name,
+                                ssi.GetNameFor(item),
+                                quantity,
+                                ssi.GetBuyPriceFor(item)
+                            );
+                            break;
+                        }
+                    }
+                }
+                else if (ser.IsMobile)
+                {
+                    var mob = World.FindMobile(ser);
+
+                    if (mob == null)
+                    {
+                        continue;
+                    }
+
+                    var gbi = LookupDisplayObject(mob);
+
+                    if (gbi != null)
+                    {
+                        var quantity = Math.Min(amount, gbi.Amount);
+                        AddActivityPurchaseLine(lines, buyer, ser.Value, gbi.Type.Name, gbi.Name, quantity, gbi.Price);
+                    }
+                }
+            }
+
+            return lines;
+        }
+
+        private void AddActivityPurchaseLine(
+            List<ActivityTrackingService.VendorSaleLine> lines,
+            Mobile buyer,
+            uint itemSerial,
+            string itemType,
+            string itemName,
+            int quantity,
+            int unitPrice
+        )
+        {
+            if (quantity <= 0 || unitPrice < 0)
+            {
+                return;
+            }
+
+            lines.Add(new ActivityTrackingService.VendorSaleLine
+            {
+                ItemSerial = itemSerial,
+                BuyerSerial = buyer?.Serial.Value ?? 0,
+                VendorSerial = Serial.Value,
+                RegionName = Region?.Name ?? "Unknown",
+                Map = Map?.ToString() ?? "Unknown",
+                Location = Location,
+                ItemType = itemType,
+                ItemName = itemName,
+                Quantity = quantity,
+                UnitPrice = unitPrice,
+                TotalPrice = quantity * unitPrice
+            });
+        }
+        /* END CUSTOM ACTIVITY TRACKING */
+
         public virtual bool OnSellItems(Mobile seller, List<SellItemResponse> list)
         {
             if (!IsActiveBuyer)
@@ -425,6 +562,9 @@ namespace Server.Mobiles
             var buyInfo = GetBuyInfo();
             var GiveGold = 0;
             var Sold = 0;
+            /* BEGIN CUSTOM ACTIVITY TRACKING: collect NPC vendor sale line details for later tracking/logging */
+            var activitySaleLines = new List<ActivityTrackingService.VendorSaleLine>();
+            /* END CUSTOM ACTIVITY TRACKING */
 
             foreach (var resp in list)
             {
@@ -476,6 +616,26 @@ namespace Server.Mobiles
                     {
                         amount = resp.Item.Amount;
                     }
+
+                    var unitPrice = ssi.GetSellPriceFor(resp.Item);
+                    var lineTotal = unitPrice * amount;
+
+                    /* BEGIN CUSTOM ACTIVITY TRACKING: preserve sale item details before item consumption/movement */
+                    activitySaleLines.Add(new ActivityTrackingService.VendorSaleLine
+                    {
+                        ItemSerial = resp.Item.Serial.Value,
+                        SellerSerial = seller.Serial.Value,
+                        VendorSerial = Serial.Value,
+                        RegionName = Region?.Name ?? "Unknown",
+                        Map = Map?.ToString() ?? "Unknown",
+                        Location = Location,
+                        ItemType = resp.Item.GetType().Name,
+                        ItemName = resp.Item.Name ?? resp.Item.GetType().Name,
+                        Quantity = amount,
+                        UnitPrice = unitPrice,
+                        TotalPrice = lineTotal
+                    });
+                    /* END CUSTOM ACTIVITY TRACKING */
 
                     if (ssi.IsResellable(resp.Item))
                     {
@@ -530,13 +690,17 @@ namespace Server.Mobiles
                         }
                     }
 
-                    GiveGold += ssi.GetSellPriceFor(resp.Item) * amount;
+                    GiveGold += lineTotal;
                     break;
                 }
             }
 
             if (GiveGold > 0)
             {
+                /* BEGIN CUSTOM ACTIVITY TRACKING: preserve full NPC vendor sale payout before stack splitting mutates GiveGold */
+                var earnedGold = GiveGold;
+                /* END CUSTOM ACTIVITY TRACKING */
+
                 while (GiveGold > 60000)
                 {
                     seller.AddToBackpack(new Gold(60000));
@@ -546,6 +710,10 @@ namespace Server.Mobiles
                 seller.AddToBackpack(new Gold(GiveGold));
 
                 seller.PlaySound(0x0037); // Gold dropping sound
+
+                /* BEGIN CUSTOM ACTIVITY TRACKING: record gold earned from NPC vendor sales after payout succeeds */
+                ActivityTrackingService.RecordVendorGoldEarned(seller, this, earnedGold, activitySaleLines);
+                /* END CUSTOM ACTIVITY TRACKING */
 
                 if (ContentFeatureFlags.BulkOrders && SupportsBulkOrders(seller))
                 {

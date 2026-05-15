@@ -1,4 +1,5 @@
 using System;
+using Server.Custom.Engines.ActivityTracking;
 using Server.Engines.Quests.Collector;
 using Server.Items;
 using Server.Mobiles;
@@ -446,6 +447,10 @@ namespace Server.Engines.Harvest
                     from.SendLocalizedMessage(number, true, name);
                 }
             }
+
+            /* BEGIN ACTIVITY TRACKING CUSTOMIZATION: record successful fishing catches after harvest success is resolved */
+            ActivityTrackingService.RecordFishingCatch(from, item);
+            /* END ACTIVITY TRACKING CUSTOMIZATION */
         }
 
         public override void OnHarvestStarted(Mobile from, Item tool, HarvestDefinition def, object toHarvest)

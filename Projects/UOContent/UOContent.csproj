@@ -41,8 +41,9 @@
             <IncludeInPackage>false</IncludeInPackage>
         </ProjectReference>
         <PackageReference Include="LibDeflate.Bindings" Version="1.0.3" />
-        <PackageReference Include="MailKit" Version="4.15.1" />
-        <PackageReference Include="Microsoft.Extensions.FileSystemGlobbing" Version="10.0.5" />
+        <PackageReference Include="System.IO.Hashing" Version="10.0.6" />
+        <PackageReference Include="MailKit" Version="4.16.0" />
+        <PackageReference Include="Microsoft.Extensions.FileSystemGlobbing" Version="10.0.6" />
         <PackageReference Include="CommunityToolkit.HighPerformance" Version="8.4.2" />
         <PackageReference Include="Argon2.Bindings" Version="1.17.0" />
         <PackageReference Include="ModernUO.CodeGeneratedEvents.Annotations" Version="1.0.0" />
@@ -57,5 +58,9 @@
         <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleTo">
             <_Parameter1>UOContent.Tests</_Parameter1>
         </AssemblyAttribute>
+    </ItemGroup>
+    <ItemGroup>
+      <Folder Include="Custom\Systems\TravelCodex\" />
+      <Folder Include="Custom\Systems\Template Saver\Template Presets\" />
     </ItemGroup>
 </Project>

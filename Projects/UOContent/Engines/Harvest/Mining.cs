@@ -1,4 +1,5 @@
 using System;
+using Server.Custom.Engines.ActivityTracking;
 using Server.Items;
 using Server.Mobiles;
 using Server.Targeting;
@@ -322,6 +323,10 @@ namespace Server.Engines.Harvest
             {
                 base.SendSuccessTo(from, item, resource);
             }
+
+            /* BEGIN ACTIVITY TRACKING CUSTOMIZATION: record successful mining yields by material type after harvest succeeds */
+            ActivityTrackingService.RecordMiningYield(from, item);
+            /* END ACTIVITY TRACKING CUSTOMIZATION */
         }
 
         public override bool CheckHarvest(Mobile from, Item tool, HarvestDefinition def, object toHarvest)

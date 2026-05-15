@@ -14,6 +14,10 @@
 /Distribution/Configuration/email-settings.json
 /Distribution/Configuration/throttles.json
 /Distribution/Configuration/tot.json
+Distribution/Configuration/FeatureFlags/
+Distribution/Configuration/TemplateSaver/
+Distribution/Configuration/CreatureDifficultySystem/
+Distribution/Configuration/
 /Distribution/Logs
 /Distribution/Archives
 /Distribution/Backups

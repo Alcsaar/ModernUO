@@ -37,7 +37,10 @@ using Server.Spells.Sixth;
 using Server.Spells.Spellweaving;
 using Server.Systems.FeatureFlags;
 using Server.Targeting;
-using BaseQuestGump = Server.Engines.MLQuests.Gumps.BaseQuestGump;
+/* BEGIN CUSTOM ACTIVITY TRACKING: expose the in-memory activity tracking service to player hooks */
+using Server.Custom.Engines.ActivityTracking;
+/* END CUSTOM ACTIVITY TRACKING */
+using BaseMLQuestGump = Server.Engines.MLQuests.Gumps.BaseMLQuestGump;
 using CalcMoves = Server.Movement.Movement;
 using QuestOfferGump = Server.Engines.MLQuests.Gumps.QuestOfferGump;
 using RankDefinition = Server.Guilds.RankDefinition;
@@ -684,7 +687,7 @@ namespace Server.Mobiles
         [CommandProperty(AccessLevel.GameMaster)]
         public bool Young
         {
-            get => GetFlag(PlayerFlag.Young);
+            get => ContentFeatureFlags.YoungPlayerSystem && GetFlag(PlayerFlag.Young);
             set
             {
                 SetFlag(PlayerFlag.Young, value);
@@ -1283,6 +1286,10 @@ namespace Server.Mobiles
             from.ClaimAutoStabledPets();
             AnimalForm.GetContext(from)?.Timer.Start();
             from.ResendBuffs();
+
+            /* BEGIN CUSTOM ACTIVITY TRACKING: snapshot bank balance on login for runtime economy status */
+            ActivityTrackingService.RefreshBankBalance(from);
+            /* END CUSTOM ACTIVITY TRACKING */
         }
 
         private class ServerLockdownNoticeGump : StaticNoticeGump<ServerLockdownNoticeGump>
@@ -2006,7 +2013,7 @@ namespace Server.Mobiles
 
             if (CheckAlive() && house?.IsOwner(this) == true && house.InternalizedVendors.Count > 0 && NetState is NetState { } ns)
             {
-                ns.SendGump(new ReclaimVendorGump(house));
+                ReclaimVendorGump.DisplayTo(this, house);
             }
         }
 
@@ -2660,6 +2667,10 @@ namespace Server.Mobiles
                     killer = master;
                 }
             }
+
+            /* BEGIN CUSTOM ACTIVITY TRACKING: record player death context for runtime activity diagnostics */
+            ActivityTrackingService.RecordPlayerDeath(this, killer);
+            /* END CUSTOM ACTIVITY TRACKING */
 
             if (Young && DuelContext == null && YoungDeathTeleport())
             {
@@ -3996,7 +4007,7 @@ namespace Server.Mobiles
         {
             if (NetState != null)
             {
-                BaseQuestGump.CloseOtherGumps(this);
+                BaseMLQuestGump.CloseOtherGumps(this);
                 var gumps = this.GetGumps();
                 gumps.Close<QuestLogDetailedGump>();
                 gumps.Close<QuestLogGump>();
@@ -4156,6 +4167,10 @@ namespace Server.Mobiles
             {
                 MLQuestSystem.HandleSkillGain(this, skill);
             }
+
+            /* BEGIN CUSTOM ACTIVITY TRACKING: record skill milestone progress for achievement tracking */
+            ActivityTrackingService.RecordSkillMilestone(this, skill, oldBase);
+            /* END CUSTOM ACTIVITY TRACKING */
         }
 
         public override void OnAccessLevelChanged(AccessLevel oldLevel)

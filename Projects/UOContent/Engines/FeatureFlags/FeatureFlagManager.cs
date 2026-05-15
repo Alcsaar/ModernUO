@@ -975,6 +975,12 @@ public static class FeatureFlagManager
             "boat_placement"         => ContentFeatureFlags.BoatPlacement = enabled,
             "bulk_orders"            => ContentFeatureFlags.BulkOrders = enabled,
             "passive_detect_hidden"  => ContentFeatureFlags.PassiveDetectHidden = enabled,
+
+            // Custom Systems
+            "relative_threat_display" => ContentFeatureFlags.RelativeThreatDisplay = enabled,
+            "template_saves" => ContentFeatureFlags.TemplateSaves = enabled,
+            "young_player_system"    => ContentFeatureFlags.YoungPlayerSystem = enabled,
+            "bitmap_pathfinding_cache" => ContentFeatureFlags.BitmapPathfindingCache = enabled,
         };
     }
 

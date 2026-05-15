@@ -24,6 +24,12 @@ using Server.Spells.Necromancy;
 using Server.Spells.Sixth;
 using Server.Spells.Spellweaving;
 using Server.Targeting;
+/* BEGIN CUSTOM ACTIVITY TRACKING: expose the in-memory activity tracking service to creature death hooks */
+using Server.Custom.Engines.ActivityTracking;
+/* END CUSTOM ACTIVITY TRACKING */
+
+using Server.Engines.RelativeThreatSystem;
+using Server.Custom.Systems.CustomFeatureFlags;
 
 namespace Server.Mobiles
 {
@@ -865,7 +871,20 @@ namespace Server.Mobiles
         public virtual bool IsHouseSummonable => false;
 
         public virtual bool AutoDispel => false;
-        public virtual double AutoDispelChance => Core.SE ? .10 : 1.0;
+        //public virtual double AutoDispelChance => Core.SE ? .10 : 1.0;
+
+        public virtual double AutoDispelChance
+        {
+            get
+            {
+                if (!CustomFeatureFlagManager.IsEnabled(CustomFeatureFlagKeys.CreatureAutoDispel))
+                {
+                    return 0.0;
+                }
+
+                return Core.SE ? 0.10 : 1.0;
+            }
+        }
 
         public virtual bool IsScaryToPets => false;
         public virtual bool IsScaredOfScaryThings => true;
@@ -2245,7 +2264,7 @@ namespace Server.Mobiles
 
         public void ChangeAIType(AIType newAI)
         {
-            AIObject?._timer.Stop();
+            AIObject?.AITimer.Stop();
 
             if (ForcedAI != null)
             {
@@ -2368,7 +2387,7 @@ namespace Server.Mobiles
         {
             if (AIObject != null)
             {
-                AIObject._timer?.Stop();
+                AIObject.AITimer?.Stop();
                 AIObject = null;
             }
 
@@ -2909,7 +2928,7 @@ namespace Server.Mobiles
             }
         }
 
-        public override void OnSingleClick(Mobile from)
+        /*public override void OnSingleClick(Mobile from)
         {
             if (Controlled && Commandable)
             {
@@ -2929,6 +2948,59 @@ namespace Server.Mobiles
                 }
 
                 PrivateOverheadMessage(MessageType.Regular, 0x3B2, number, from.NetState);
+            }
+
+            base.OnSingleClick(from);
+        }*/
+
+        // Modification to display relative threat level
+        public override void OnSingleClick(Mobile from)
+        {
+            if (
+                    !Controlled &&
+                    from != null &&
+                    !from.Deleted &&
+                    CustomFeatureFlagManager.IsEnabled(CustomFeatureFlagKeys.RelativeThreat)
+            )
+            {
+                var threatLabel = RelativeThreatService.GetThreatLabelOnly(from, this);
+                var threatHue = RelativeThreatService.GetThreatHue(threatLabel);
+
+                if (!string.IsNullOrEmpty(threatLabel))
+                {
+                    PrivateOverheadMessage(
+                        MessageType.Regular,
+                        threatHue,
+                        false,
+                        $"({threatLabel})",
+                        from.NetState
+                    );
+                }
+            }
+
+            if (Controlled && Commandable)
+            {
+                int number;
+
+                if (Summoned)
+                {
+                    number = 1049646; // (summoned)
+                }
+                else if (IsBonded)
+                {
+                    number = 1049608; // (bonded)
+                }
+                else
+                {
+                    number = 502006; // (tame)
+                }
+
+                PrivateOverheadMessage(
+                    MessageType.Regular,
+                    0x3B2,
+                    number,
+                    from.NetState
+                );
             }
 
             base.OnSingleClick(from);
@@ -3286,19 +3358,15 @@ namespace Server.Mobiles
 
             if (!Summoned && !NoKillAwards)
             {
-                var totalFame = Fame / 100;
-                var totalKarma = -Karma / 100;
-
-                if (Map == Map.Felucca)
-                {
-                    totalFame += totalFame / 10 * 3;
-                    totalKarma += totalKarma / 10 * 3;
-                }
+                var (totalFame, totalKarma) = Titles.ComputeKillAwards(this, Map);
 
                 var list = GetLootingRights(DamageEntries, HitsMax);
-                var titles = new List<Mobile>();
-                var fame = new List<int>();
-                var karma = new List<int>();
+                /* BEGIN CUSTOM ACTIVITY TRACKING: notify activity tracking service of this creature kill event */
+                ActivityTrackingService.RecordCreatureKill(this, list);
+                /* END CUSTOM ACTIVITY TRACKING */
+                using var titles = PooledRefList<Mobile>.Create();
+                var fame = PooledRefList<int>.Create();
+                var karma = PooledRefList<int>.Create();
 
                 var givenQuestKill = false;
                 var givenFactionKill = false;
@@ -3313,9 +3381,19 @@ namespace Server.Mobiles
                         continue;
                     }
 
-                    var party = Engines.PartySystem.Party.Get(ds.m_Mobile);
+                    if (!Core.UOR)
+                    {
+                        var killer = LastKiller is BaseCreature bc ? bc.GetDamageMaster(this) : LastKiller;
 
-                    if (party != null)
+                        if (ds.m_Mobile == killer)
+                        {
+                            // If the titles system gets feature flagged, it will be supported
+                            titles.Add(ds.m_Mobile);
+                            fame.Add(totalFame);
+                            karma.Add(totalKarma);
+                        }
+                    }
+                    else if (Engines.PartySystem.Party.Get(ds.m_Mobile) is { } party)
                     {
                         var divedFame = totalFame / party.Members.Count;
                         var divedKarma = totalKarma / party.Members.Count;
@@ -3393,9 +3471,16 @@ namespace Server.Mobiles
                     Titles.AwardFame(titles[i], fame[i], true);
                     Titles.AwardKarma(titles[i], karma[i], true);
                 }
+
+                fame.Dispose();
+                karma.Dispose();
             }
 
             base.OnDeath(c);
+
+            /* BEGIN CUSTOM ACTIVITY TRACKING: register original monster corpse gold for anti-duplication loot tracking */
+            ActivityTrackingService.RegisterMonsterCorpseGold(this, c);
+            /* END CUSTOM ACTIVITY TRACKING */
 
             if (DeleteCorpseOnDeath)
             {
@@ -3863,6 +3948,8 @@ namespace Server.Mobiles
 
             OnAfterResurrect();
 
+            AIObject?.Activate();
+
             var owner = ControlMaster;
 
             if (owner?.Deleted == false && owner.Map == Map && owner.InRange(this, 12) && CanSee(owner) && InLOS(owner))
@@ -3914,7 +4001,7 @@ namespace Server.Mobiles
             {
                 SetLocation(Home, true);
 
-                if (!Map.GetSector(X, Y).Active)
+                if (PlayerRangeSensitive && !Map.GetSector(X, Y).Active)
                 {
                     AIObject?.Deactivate();
                 }

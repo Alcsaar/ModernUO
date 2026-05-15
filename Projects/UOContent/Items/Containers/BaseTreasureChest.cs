@@ -1,11 +1,16 @@
 using System;
 using ModernUO.Serialization;
+using Server.Custom.Engines.ActivityTracking;
 
 namespace Server.Items;
 
 [SerializationGenerator(1, false)]
 public partial class BaseTreasureChest : LockableContainer
 {
+    /* BEGIN ACTIVITY TRACKING CUSTOMIZATION: guard against counting multiple opens for the same dungeon treasure chest */
+    private bool _activityOpened;
+    /* END ACTIVITY TRACKING CUSTOMIZATION */
+
     public enum TreasureLevel
     {
         Level1,
@@ -117,11 +122,33 @@ public partial class BaseTreasureChest : LockableContainer
             _                    => Utility.RandomMinMax(5000, 9000),
         };
 
-        DropItem(new Gold(gold));
+        var goldItem = new Gold(gold);
+        DropItem(goldItem);
+        ActivityTrackingService.RegisterDungeonTreasureChestGold(this, goldItem);
     }
+
+    public override bool CheckItemUse(Mobile from, Item item)
+    {
+        return base.CheckItemUse(from, item);
+    }
+
+    /* BEGIN ACTIVITY TRACKING CUSTOMIZATION: count the first successful open of an unlocked dungeon treasure chest on the actual container open path */
+    public override void Open(Mobile from)
+    {
+        base.Open(from);
+
+        if (!Locked && !_activityOpened)
+        {
+            _activityOpened = true;
+            ActivityTrackingService.RecordDungeonTreasureChestOpened(from, this);
+        }
+    }
+    /* END ACTIVITY TRACKING CUSTOMIZATION */
 
     public void ClearContents()
     {
+        ActivityTrackingService.ClearDungeonTreasureChestGold(this);
+
         for (var i = Items.Count - 1; i >= 0; --i)
         {
             if (i < Items.Count)
@@ -134,8 +161,19 @@ public partial class BaseTreasureChest : LockableContainer
     public void Reset()
     {
         _resetTimer.Cancel();
+
+        /* BEGIN ACTIVITY TRACKING CUSTOMIZATION: allow reopened chest spawns to be counted again after reset */
+        _activityOpened = false;
+        /* END ACTIVITY TRACKING CUSTOMIZATION */
+
         Locked = true;
         ClearContents();
         GenerateTreasure();
+    }
+
+    public override void OnItemLifted(Mobile from, Item item)
+    {
+        base.OnItemLifted(from, item);
+        ActivityTrackingService.RecordDungeonTreasureChestGoldLooted(from, this, item);
     }
 }
