@@ -1,5 +1,6 @@
 using System;
 using Server.Custom.Engines.ActivityTracking;
+using Server.Custom.Systems.AchievementSystem;
 using Server.Engines.Quests.Collector;
 using Server.Items;
 using Server.Mobiles;
@@ -366,6 +367,10 @@ namespace Server.Engines.Harvest
 
                 m.SendLocalizedMessage(503170); // Uh oh! That doesn't look like a fish!
 
+                /* BEGIN CUSTOM ACHIEVEMENT SYSTEM: record sea-serpent fishing encounters when a catch spawns one */
+                AchievementService.RecordFishingSerpentEncounter(m);
+                /* END CUSTOM ACHIEVEMENT SYSTEM */
+
                 return true; // we don't want to give the item to the player, it's on the serpent
             }
 
@@ -451,6 +456,10 @@ namespace Server.Engines.Harvest
             /* BEGIN ACTIVITY TRACKING CUSTOMIZATION: record successful fishing catches after harvest success is resolved */
             ActivityTrackingService.RecordFishingCatch(from, item);
             /* END ACTIVITY TRACKING CUSTOMIZATION */
+
+            /* BEGIN CUSTOM ACHIEVEMENT SYSTEM: record fishing catch progress after harvest success is resolved */
+            AchievementService.RecordFishingCatch(from, item);
+            /* END CUSTOM ACHIEVEMENT SYSTEM */
         }
 
         public override void OnHarvestStarted(Mobile from, Item tool, HarvestDefinition def, object toHarvest)

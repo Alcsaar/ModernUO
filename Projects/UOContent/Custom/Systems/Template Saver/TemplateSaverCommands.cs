@@ -8,11 +8,32 @@ public static class TemplateSaverCommands
     public static void Configure()
     {
         CommandSystem.Register("Templates", AccessLevel.Player, Templates_OnCommand);
+        CommandSystem.Register("Tpl", AccessLevel.Player, Templates_OnCommand);
+        CommandSystem.Register("Tmpl", AccessLevel.Player, Templates_OnCommand);
+
         CommandSystem.Register("TemplateUndoDelete", AccessLevel.Player, TemplateUndoDelete_OnCommand);
+        CommandSystem.Register("TplUndo", AccessLevel.Player, TemplateUndoDelete_OnCommand);
+        CommandSystem.Register("TmplUndo", AccessLevel.Player, TemplateUndoDelete_OnCommand);
+
         CommandSystem.Register("TemplateRestore", AccessLevel.GameMaster, TemplateRestore_OnCommand);
+        CommandSystem.Register("TplRestore", AccessLevel.GameMaster, TemplateRestore_OnCommand);
+        CommandSystem.Register("TmplRestore", AccessLevel.GameMaster, TemplateRestore_OnCommand);
+
         CommandSystem.Register("TemplateRestoreTarget", AccessLevel.GameMaster, TemplateRestoreTarget_OnCommand);
+        CommandSystem.Register("TplRestoreTarget", AccessLevel.GameMaster, TemplateRestoreTarget_OnCommand);
+        CommandSystem.Register("TmplRestoreTarget", AccessLevel.GameMaster, TemplateRestoreTarget_OnCommand);
+
         CommandSystem.Register("TemplateInspect", AccessLevel.GameMaster, TemplateInspect_OnCommand);
+        CommandSystem.Register("TplInspect", AccessLevel.GameMaster, TemplateInspect_OnCommand);
+        CommandSystem.Register("TmplInspect", AccessLevel.GameMaster, TemplateInspect_OnCommand);
+
         CommandSystem.Register("TemplateSlots", AccessLevel.GameMaster, TemplateSlots_OnCommand);
+        CommandSystem.Register("TplSlots", AccessLevel.GameMaster, TemplateSlots_OnCommand);
+        CommandSystem.Register("TmplSlots", AccessLevel.GameMaster, TemplateSlots_OnCommand);
+
+        CommandSystem.Register("TemplateExportJson", AccessLevel.Administrator, TemplateExportJson_OnCommand);
+        CommandSystem.Register("TplExportJson", AccessLevel.Administrator, TemplateExportJson_OnCommand);
+        CommandSystem.Register("TmplExportJson", AccessLevel.Administrator, TemplateExportJson_OnCommand);
     }
 
     [Usage("Templates")]
@@ -140,8 +161,8 @@ public static class TemplateSaverCommands
         }
     }
 
-    [Usage("TemplateSlots [amount] | TemplateSlots target <amount>")]
-    [Description("Shows or sets extra template slots. Use 'target' to apply the slot count to another character.")]
+    [Usage("TemplateSlots add|remove|set <amount>")]
+    [Description("Targets a character and adds, removes, or sets extra template slots.")]
     private static void TemplateSlots_OnCommand(CommandEventArgs e)
     {
         var from = e.Mobile;
@@ -158,17 +179,29 @@ public static class TemplateSaverCommands
 
             from.SendMessage(0x35, $"Extra template slots: {extra}");
             from.SendMessage(0x35, $"Total template slots: {total}");
+            SendTemplateSlotsUsage(from);
             return;
         }
 
-        if (e.Arguments.Length >= 2 && e.Arguments[0].Equals("target", System.StringComparison.OrdinalIgnoreCase))
+        if (e.Arguments.Length == 2 &&
+            TryParseTemplateSlotAction(e.Arguments[0], out var action) &&
+            int.TryParse(e.Arguments[1], out var amount))
         {
-            if (!int.TryParse(e.Arguments[1], out var targetAmount))
+            if (amount < 0)
             {
-                from.SendMessage(0x22, "Usage: [TemplateSlots target <amount>");
+                from.SendMessage(0x22, "Slot amount cannot be negative.");
                 return;
             }
 
+            from.SendMessage("Target the character whose template slots you want to change.");
+            from.Target = new TemplateSlotsTarget(action, amount);
+            return;
+        }
+
+        if (e.Arguments.Length == 2 &&
+            e.Arguments[0].Equals("target", System.StringComparison.OrdinalIgnoreCase) &&
+            int.TryParse(e.Arguments[1], out var targetAmount))
+        {
             if (targetAmount < 0)
             {
                 from.SendMessage(0x22, "Slot amount cannot be negative.");
@@ -176,38 +209,21 @@ public static class TemplateSaverCommands
             }
 
             from.SendMessage("Target the character whose template slots you want to change.");
-            from.Target = new TemplateSlotsTarget(targetAmount);
+            from.Target = new TemplateSlotsTarget(TemplateSlotAction.Set, targetAmount);
             return;
         }
 
-        if (!int.TryParse(e.Arguments[0], out var amount))
-        {
-            from.SendMessage(0x22, "Usage: [TemplateSlots [amount] | [TemplateSlots target <amount>");
-            return;
-        }
-
-        if (amount < 0)
-        {
-            from.SendMessage(0x22, "Slot amount cannot be negative.");
-            return;
-        }
-
-        if (TemplateSaverManager.SetExtraSlots(from, from.Serial.Value, amount, out var message))
-        {
-            from.SendMessage(0x35, message);
-        }
-        else
-        {
-            from.SendMessage(0x22, message);
-        }
+        SendTemplateSlotsUsage(from);
     }
 
     private sealed class TemplateSlotsTarget : Target
     {
+        private readonly TemplateSlotAction _action;
         private readonly int _amount;
 
-        public TemplateSlotsTarget(int amount) : base(-1, false, TargetFlags.None)
+        public TemplateSlotsTarget(TemplateSlotAction action, int amount) : base(-1, false, TargetFlags.None)
         {
+            _action = action;
             _amount = amount;
         }
 
@@ -219,7 +235,21 @@ public static class TemplateSaverCommands
                 return;
             }
 
-            if (TemplateSaverManager.SetExtraSlots(from, mobile.Serial.Value, _amount, out var message))
+            var currentExtraSlots = TemplateSaverManager.GetExtraSlots(mobile.Serial.Value);
+            var newExtraSlots = _action switch
+            {
+                TemplateSlotAction.Add => currentExtraSlots + _amount,
+                TemplateSlotAction.Remove => currentExtraSlots - _amount,
+                _ => _amount
+            };
+
+            if (newExtraSlots < 0)
+            {
+                from.SendMessage(0x22, $"{mobile.Name} only has {currentExtraSlots} extra template slot(s).");
+                return;
+            }
+
+            if (TemplateSaverManager.SetExtraSlots(from, mobile.Serial.Value, newExtraSlots, out var message))
             {
                 from.SendMessage(0x35, $"{mobile.Name}: {message}");
             }
@@ -228,5 +258,62 @@ public static class TemplateSaverCommands
                 from.SendMessage(0x22, message);
             }
         }
+    }
+
+    private enum TemplateSlotAction
+    {
+        Add,
+        Remove,
+        Set
+    }
+
+    private static bool TryParseTemplateSlotAction(string value, out TemplateSlotAction action)
+    {
+        if (value.Equals("add", System.StringComparison.OrdinalIgnoreCase) ||
+            value.Equals("+", System.StringComparison.OrdinalIgnoreCase))
+        {
+            action = TemplateSlotAction.Add;
+            return true;
+        }
+
+        if (value.Equals("remove", System.StringComparison.OrdinalIgnoreCase) ||
+            value.Equals("rem", System.StringComparison.OrdinalIgnoreCase) ||
+            value.Equals("-", System.StringComparison.OrdinalIgnoreCase))
+        {
+            action = TemplateSlotAction.Remove;
+            return true;
+        }
+
+        if (value.Equals("set", System.StringComparison.OrdinalIgnoreCase))
+        {
+            action = TemplateSlotAction.Set;
+            return true;
+        }
+
+        action = TemplateSlotAction.Set;
+        return false;
+    }
+
+    private static void SendTemplateSlotsUsage(Mobile from)
+    {
+        from.SendMessage(0x22, "Usage: [TemplateSlots add <amount>");
+        from.SendMessage(0x22, "Usage: [TemplateSlots remove <amount>");
+        from.SendMessage(0x22, "Usage: [TemplateSlots set <amount>");
+    }
+
+    [Usage("TemplateExportJson")]
+    [Description("Exports the current binary Template Saver state to timestamped JSON backup files.")]
+    private static void TemplateExportJson_OnCommand(CommandEventArgs e)
+    {
+        var from = e.Mobile;
+
+        if (from == null || from.AccessLevel < AccessLevel.Administrator)
+        {
+            return;
+        }
+
+        var path = TemplateSaverManager.ExportJsonBackup();
+        from.SendMessage(0x35, "Template Saver JSON backup exported.");
+        from.SendMessage(path);
     }
 }

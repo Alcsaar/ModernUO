@@ -1,3 +1,5 @@
+using System;
+using Server.Custom.Engines.CreatureDifficultySystem;
 using Server.Mobiles;
 
 namespace Server.Engines.RelativeThreatSystem;
@@ -7,6 +9,7 @@ public static class PlayerCombatPowerEvaluator
     private const double MinimumActiveSkill = 30.0;
     private const double MinimumSupportSkill = 40.0;
     private const double ScoreFloor = 10.0;
+    private const double MaximumPetContribution = 140.0;
 
     public static PlayerCombatPowerResult Evaluate(Mobile player)
     {
@@ -78,6 +81,62 @@ public static class PlayerCombatPowerEvaluator
         );
     }
 
+    public static PlayerCombatPowerResult EvaluateTemplate(RelativeThreatPlayerTemplate template)
+    {
+        var primaryScore = template.Style switch
+        {
+            RelativeThreatPlayerStyle.Warrior => EvaluateMeleeTemplate(template.SkillValue),
+            RelativeThreatPlayerStyle.Archer => EvaluateArcherTemplate(template.SkillValue),
+            RelativeThreatPlayerStyle.Mage => EvaluateMageTemplate(template.SkillValue),
+            RelativeThreatPlayerStyle.Tamer => EvaluateTamerTemplate(template.SkillValue),
+            RelativeThreatPlayerStyle.BardMage => EvaluateBardTemplate(template.SkillValue) + (EvaluateMageTemplate(template.SkillValue) * 0.25),
+            RelativeThreatPlayerStyle.BardDexxer => EvaluateBardTemplate(template.SkillValue) + (EvaluateMeleeTemplate(template.SkillValue) * 0.25),
+            RelativeThreatPlayerStyle.Paladin => EvaluateMeleeTemplate(template.SkillValue) + (template.SkillValue * 0.20),
+            _ => 0.0
+        };
+
+        var secondaryScore = template.Style switch
+        {
+            RelativeThreatPlayerStyle.BardMage => EvaluateMageTemplate(template.SkillValue),
+            RelativeThreatPlayerStyle.BardDexxer => EvaluateMeleeTemplate(template.SkillValue),
+            RelativeThreatPlayerStyle.Paladin => template.SkillValue * 0.80,
+            _ => 0.0
+        };
+
+        var healingBonus = template.HasHealing ? GetHealingBonus(template.SkillValue) : 0.0;
+        var resistBonus = template.HasMagicResist ? GetMagicResistBonus(template.SkillValue) : 0.0;
+        var baseScore = primaryScore;
+
+        if (baseScore > 0.0)
+        {
+            baseScore *= 1.0 + healingBonus + resistBonus;
+        }
+
+        if (baseScore < ScoreFloor)
+        {
+            baseScore = ScoreFloor;
+        }
+
+        return new PlayerCombatPowerResult(
+            baseScore,
+            template.Style is RelativeThreatPlayerStyle.Warrior or RelativeThreatPlayerStyle.BardDexxer or RelativeThreatPlayerStyle.Paladin
+                ? EvaluateMeleeTemplate(template.SkillValue)
+                : 0.0,
+            template.Style == RelativeThreatPlayerStyle.Archer ? EvaluateArcherTemplate(template.SkillValue) : 0.0,
+            template.Style is RelativeThreatPlayerStyle.Mage or RelativeThreatPlayerStyle.BardMage
+                ? EvaluateMageTemplate(template.SkillValue)
+                : 0.0,
+            template.Style == RelativeThreatPlayerStyle.Tamer ? EvaluateTamerTemplate(template.SkillValue) : 0.0,
+            template.Style is RelativeThreatPlayerStyle.BardMage or RelativeThreatPlayerStyle.BardDexxer
+                ? EvaluateBardTemplate(template.SkillValue)
+                : 0.0,
+            healingBonus,
+            resistBonus,
+            template.StyleName,
+            secondaryScore > 0.0 ? template.SecondaryStyleName : "None"
+        );
+    }
+
     private static double EvaluateMelee(Mobile player)
     {
         var weaponSkill = GetBestSkill(player, SkillName.Swords, SkillName.Fencing, SkillName.Macing, SkillName.Wrestling);
@@ -90,11 +149,11 @@ public static class PlayerCombatPowerEvaluator
         }
 
         var score =
-            (weaponSkill * 1.20) +
-            (tactics * 0.90) +
-            (anatomy * 0.50) +
-            (player.Str * 0.20) +
-            (player.Dex * 0.05);
+            (weaponSkill * 0.65) +
+            (tactics * 0.45) +
+            (anatomy * 0.25) +
+            (player.Str * 0.10) +
+            (player.Dex * 0.03);
 
         return score;
     }
@@ -111,11 +170,11 @@ public static class PlayerCombatPowerEvaluator
         }
 
         var score =
-            (archery * 1.25) +
-            (tactics * 0.85) +
-            (anatomy * 0.40) +
-            (player.Dex * 0.22) +
-            (player.Str * 0.04);
+            (archery * 0.70) +
+            (tactics * 0.43) +
+            (anatomy * 0.20) +
+            (player.Dex * 0.11) +
+            (player.Str * 0.03);
 
         return score;
     }
@@ -132,11 +191,11 @@ public static class PlayerCombatPowerEvaluator
         }
 
         var score =
-            (magery * 1.15) +
-            (evalInt * 1.10) +
-            (meditation * 0.35) +
-            (player.Int * 0.25) +
-            (player.ManaMax * 0.08);
+            (magery * 0.65) +
+            (evalInt * 0.65) +
+            (meditation * 0.20) +
+            (player.Int * 0.12) +
+            (player.ManaMax * 0.04);
 
         return score;
     }
@@ -152,11 +211,16 @@ public static class PlayerCombatPowerEvaluator
             return 0.0;
         }
 
+        var petContribution = GetActivePetThreatScore(player);
+        var petMultiplier = petContribution > 0.0 ? 1.0 : 0.25;
+
         var score =
-            (taming * 1.05) +
-            (lore * 0.95) +
-            (vet * 0.35) +
-            (player.Int * 0.08);
+            ((taming * 0.55) +
+            (lore * 0.50) +
+            (vet * 0.20) +
+            (player.Int * 0.04)) * petMultiplier;
+
+        score += petContribution * GetTamerControlMultiplier(taming, lore, vet);
 
         return score;
     }
@@ -176,11 +240,11 @@ public static class PlayerCombatPowerEvaluator
         }
 
         var score =
-            (music * 0.70) +
-            (provo * 0.85) +
-            (disco * 0.75) +
-            (peace * 0.55) +
-            (player.Int * 0.06);
+            (music * 0.35) +
+            (provo * 0.42) +
+            (disco * 0.38) +
+            (peace * 0.28) +
+            (player.Int * 0.03);
 
         return score;
     }
@@ -197,22 +261,7 @@ public static class PlayerCombatPowerEvaluator
 
         var combined = (healing + anatomy) * 0.5;
 
-        if (combined >= 100.0)
-        {
-            return 0.20;
-        }
-
-        if (combined >= 80.0)
-        {
-            return 0.14;
-        }
-
-        if (combined >= 60.0)
-        {
-            return 0.08;
-        }
-
-        return 0.04;
+        return GetHealingBonus(combined);
     }
 
     private static double EvaluateMagicResistBonus(Mobile player)
@@ -224,22 +273,156 @@ public static class PlayerCombatPowerEvaluator
             return 0.0;
         }
 
-        if (resist >= 100.0)
+        return GetMagicResistBonus(resist);
+    }
+
+    private static double EvaluateMeleeTemplate(double skillValue)
+    {
+        return (skillValue * 0.65) + (skillValue * 0.45) + (skillValue * 0.25) + (skillValue * 0.10) + (skillValue * 0.03);
+    }
+
+    private static double EvaluateArcherTemplate(double skillValue)
+    {
+        return (skillValue * 0.70) + (skillValue * 0.43) + (skillValue * 0.20) + (skillValue * 0.11) + (skillValue * 0.03);
+    }
+
+    private static double EvaluateMageTemplate(double skillValue)
+    {
+        return (skillValue * 0.65) + (skillValue * 0.65) + (skillValue * 0.20) + (skillValue * 0.12) + (skillValue * 0.04);
+    }
+
+    private static double EvaluateTamerTemplate(double skillValue)
+    {
+        var baseScore = (skillValue * 0.55) + (skillValue * 0.50) + (skillValue * 0.20) + (skillValue * 0.04);
+        var assumedPetScore = GetTemplatePetThreatScore(skillValue);
+
+        return baseScore + (assumedPetScore * GetTamerControlMultiplier(skillValue, skillValue, skillValue));
+    }
+
+    private static double EvaluateBardTemplate(double skillValue)
+    {
+        return (skillValue * 0.35) + (skillValue * 0.42) + (skillValue * 0.38) + (skillValue * 0.28) + (skillValue * 0.03);
+    }
+
+    private static double GetHealingBonus(double value)
+    {
+        if (value >= 100.0)
         {
-            return 0.18;
+            return 0.16;
         }
 
-        if (resist >= 80.0)
+        if (value >= 80.0)
         {
-            return 0.12;
+            return 0.11;
         }
 
-        if (resist >= 60.0)
+        if (value >= 60.0)
         {
-            return 0.07;
+            return 0.06;
         }
 
         return 0.03;
+    }
+
+    private static double GetMagicResistBonus(double value)
+    {
+        if (value >= 100.0)
+        {
+            return 0.14;
+        }
+
+        if (value >= 80.0)
+        {
+            return 0.09;
+        }
+
+        if (value >= 60.0)
+        {
+            return 0.05;
+        }
+
+        return 0.02;
+    }
+
+    private static double GetActivePetThreatScore(Mobile player)
+    {
+        if (player is not PlayerMobile pm || pm.AllFollowers == null)
+        {
+            return 0.0;
+        }
+
+        var total = 0.0;
+
+        foreach (var follower in pm.AllFollowers)
+        {
+            if (follower is BaseCreature pet &&
+                !pet.Deleted &&
+                pet.Alive &&
+                pet.Controlled &&
+                pet.ControlMaster == player &&
+                pet.Map != null &&
+                pet.Map != Map.Internal)
+            {
+                var petDifficulty = CreatureDifficultyService.EvaluateCurrent(pet);
+                var petScore = petDifficulty.ThreatScore > 0.0 ? petDifficulty.ThreatScore : petDifficulty.Score;
+                var slotScalar = pet.ControlSlots <= 1 ? 0.35 : Math.Min(1.0, pet.ControlSlots * 0.20);
+
+                total += petScore * slotScalar;
+
+                if (total >= MaximumPetContribution)
+                {
+                    return MaximumPetContribution;
+                }
+            }
+        }
+
+        return total;
+    }
+
+    private static double GetTemplatePetThreatScore(double skillValue)
+    {
+        if (skillValue >= 100.0)
+        {
+            return 115.0;
+        }
+
+        if (skillValue >= 90.0)
+        {
+            return 90.0;
+        }
+
+        if (skillValue >= 70.0)
+        {
+            return 55.0;
+        }
+
+        return 25.0;
+    }
+
+    private static double GetTamerControlMultiplier(double taming, double lore, double veterinary)
+    {
+        var combined = (taming + lore) * 0.5;
+        var multiplier = 0.45;
+
+        if (combined >= 100.0)
+        {
+            multiplier = 0.70;
+        }
+        else if (combined >= 90.0)
+        {
+            multiplier = 0.62;
+        }
+        else if (combined >= 70.0)
+        {
+            multiplier = 0.52;
+        }
+
+        if (veterinary >= 80.0)
+        {
+            multiplier += 0.05;
+        }
+
+        return multiplier;
     }
 
     private static void UpdateTopTwo(
@@ -325,4 +508,54 @@ public static class PlayerCombatPowerEvaluator
 
         return max;
     }
+}
+
+public enum RelativeThreatPlayerStyle
+{
+    Warrior,
+    Archer,
+    Mage,
+    Tamer,
+    BardMage,
+    BardDexxer,
+    Paladin
+}
+
+public readonly struct RelativeThreatPlayerTemplate
+{
+    public RelativeThreatPlayerTemplate(
+        RelativeThreatPlayerStyle style,
+        double skillValue,
+        bool hasHealing,
+        bool hasMagicResist
+    )
+    {
+        Style = style;
+        SkillValue = skillValue;
+        HasHealing = hasHealing;
+        HasMagicResist = hasMagicResist;
+    }
+
+    public RelativeThreatPlayerStyle Style { get; }
+
+    public double SkillValue { get; }
+
+    public bool HasHealing { get; }
+
+    public bool HasMagicResist { get; }
+
+    public string StyleName => Style switch
+    {
+        RelativeThreatPlayerStyle.BardMage => "Bard Mage",
+        RelativeThreatPlayerStyle.BardDexxer => "Bard Dexxer",
+        _ => Style.ToString()
+    };
+
+    public string SecondaryStyleName => Style switch
+    {
+        RelativeThreatPlayerStyle.BardMage => "Mage",
+        RelativeThreatPlayerStyle.BardDexxer => "Melee",
+        RelativeThreatPlayerStyle.Paladin => "Chivalry",
+        _ => "None"
+    };
 }

@@ -1,6 +1,7 @@
 using System;
 using Server.Custom.Engines.CreatureDifficultySystem;
 using Server.Custom.Systems.CustomFeatureFlags;
+using Server.Items;
 using Server.Mobiles;
 
 namespace Server.Engines.RelativeThreatSystem;
@@ -20,11 +21,52 @@ public static class RelativeThreatService
         }
 
         var playerPower = PlayerCombatPowerEvaluator.Evaluate(player);
+        return GetThreat(player, creature, playerPower);
+    }
+
+    public static CreatureThreatResult GetThreat(
+        Mobile player,
+        BaseCreature creature,
+        PlayerCombatPowerResult playerPower
+    )
+    {
+        if (!CustomFeatureFlagManager.IsEnabled(CustomFeatureFlagKeys.RelativeThreat))
+        {
+            return new CreatureThreatResult("Fair", 1.0, 1.0, 1.0);
+        }
+
+        if (creature == null || creature.Deleted || playerPower == null)
+        {
+            return new CreatureThreatResult("Fair", 1.0, 1.0, 1.0);
+        }
+
         var playerScore = Math.Max(1.0, playerPower.PowerScore);
         var creatureScore = Math.Max(1.0, GetCreatureScore(creature));
 
         var ratio = creatureScore / playerScore;
         ratio *= GetMatchupMultiplier(player, creature, playerPower);
+
+        var label = GetThreatLabel(ratio);
+
+        return new CreatureThreatResult(label, ratio, creatureScore, playerScore);
+    }
+
+    public static CreatureThreatResult GetThreatForTemplate(
+        RelativeThreatPlayerTemplate template,
+        BaseCreature creature
+    )
+    {
+        if (creature == null || creature.Deleted)
+        {
+            return new CreatureThreatResult("Fair", 1.0, 1.0, 1.0);
+        }
+
+        var playerPower = PlayerCombatPowerEvaluator.EvaluateTemplate(template);
+        var playerScore = Math.Max(1.0, playerPower.PowerScore);
+        var creatureScore = Math.Max(1.0, GetCreatureScore(creature));
+
+        var ratio = creatureScore / playerScore;
+        ratio *= GetMatchupMultiplier(null, creature, playerPower);
 
         var label = GetThreatLabel(ratio);
 
@@ -63,8 +105,9 @@ public static class RelativeThreatService
 
     private static double GetCreatureScore(BaseCreature creature)
     {
-        var result = CreatureDifficultyService.GetDifficulty(creature);
-        return result.Score < 1.0 ? 1.0 : result.Score;
+        var result = CreatureDifficultyService.EvaluateCurrent(creature);
+        var score = result.ThreatScore > 0.0 ? result.ThreatScore : result.Score;
+        return score < 1.0 ? 1.0 : score;
     }
 
     private static double GetMatchupMultiplier(
@@ -81,6 +124,9 @@ public static class RelativeThreatService
         {
             multiplier *= GetCasterThreatMultiplier(player, playerPower, casterTier);
         }
+
+        multiplier *= GetBardThreatMultiplier(creature, playerPower);
+        multiplier *= GetTamerThreatMultiplier(creature, playerPower);
 
         return multiplier;
     }
@@ -169,6 +215,100 @@ public static class RelativeThreatService
         }
 
         return multiplier;
+    }
+
+    private static double GetBardThreatMultiplier(
+        BaseCreature creature,
+        PlayerCombatPowerResult playerPower
+    )
+    {
+        if (playerPower.BardScore <= 0.0)
+        {
+            return 1.0;
+        }
+
+        var bardDifficulty = BaseInstrument.GetBaseDifficulty(creature);
+        var bardSkill = GetEffectiveBardSkill(playerPower);
+
+        var bardLimited =
+            creature.BardImmune ||
+            creature.Unprovokable ||
+            creature.Uncalmable ||
+            creature.AreaPeaceImmune;
+
+        if (bardLimited)
+        {
+            return IsPrimaryBard(playerPower) ? 1.45 : 1.20;
+        }
+
+        if (bardDifficulty <= 80.0 || bardSkill <= 0.0)
+        {
+            return 1.0;
+        }
+
+        if (bardDifficulty > bardSkill + 30.0)
+        {
+            return IsPrimaryBard(playerPower) ? 1.30 : 1.12;
+        }
+
+        if (bardDifficulty > bardSkill + 15.0)
+        {
+            return IsPrimaryBard(playerPower) ? 1.18 : 1.07;
+        }
+
+        if (bardDifficulty + 20.0 < bardSkill)
+        {
+            return 0.92;
+        }
+
+        return 1.0;
+    }
+
+    private static double GetTamerThreatMultiplier(
+        BaseCreature creature,
+        PlayerCombatPowerResult playerPower
+    )
+    {
+        if (playerPower.TamerScore <= 0.0)
+        {
+            return 1.0;
+        }
+
+        var multiplier = 1.0;
+
+        if (creature.AutoDispel)
+        {
+            multiplier += 0.10;
+        }
+
+        if (creature.GetMonsterAbilities() is { Length: > 0 })
+        {
+            multiplier += 0.05;
+        }
+
+        return multiplier;
+    }
+
+    private static bool IsPrimaryBard(PlayerCombatPowerResult playerPower)
+        => playerPower.PrimaryStyle == "Bard" ||
+            playerPower.PrimaryStyle == "Bard Mage" ||
+            playerPower.PrimaryStyle == "Bard Dexxer";
+
+    private static double GetEffectiveBardSkill(PlayerCombatPowerResult playerPower)
+    {
+        if (playerPower.BardScore <= 0.0)
+        {
+            return 0.0;
+        }
+
+        var estimated = playerPower.BardScore / 1.46;
+
+        if (estimated > 120.0)
+        {
+            return 120.0;
+        }
+
+        return estimated;
     }
 
     private static int GetCasterThreatTier(BaseCreature creature)

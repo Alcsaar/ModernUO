@@ -1,5 +1,6 @@
 using System;
 using Server.Custom.Engines.ActivityTracking;
+using Server.Custom.Systems.AchievementSystem;
 using Server.Items;
 using Server.Targeting;
 
@@ -183,6 +184,10 @@ namespace Server.Engines.Harvest
         {
             base.SendSuccessTo(from, item, resource);
             ActivityTrackingService.RecordLumberYield(from, item);
+
+            /* BEGIN CUSTOM ACHIEVEMENT SYSTEM: record lumber resource progress after harvest succeeds */
+            AchievementService.RecordHarvestYield(from, item, AchievementHarvestKind.Lumberjacking);
+            /* END CUSTOM ACHIEVEMENT SYSTEM */
         }
         /* END ACTIVITY TRACKING CUSTOMIZATION */
 

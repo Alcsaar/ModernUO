@@ -40,6 +40,9 @@ using Server.Targeting;
 /* BEGIN CUSTOM ACTIVITY TRACKING: expose the in-memory activity tracking service to player hooks */
 using Server.Custom.Engines.ActivityTracking;
 /* END CUSTOM ACTIVITY TRACKING */
+/* BEGIN CUSTOM ACHIEVEMENT SYSTEM: expose achievement progress tracking to player hooks */
+using Server.Custom.Systems.AchievementSystem;
+/* END CUSTOM ACHIEVEMENT SYSTEM */
 using BaseMLQuestGump = Server.Engines.MLQuests.Gumps.BaseMLQuestGump;
 using CalcMoves = Server.Movement.Movement;
 using QuestOfferGump = Server.Engines.MLQuests.Gumps.QuestOfferGump;
@@ -4168,9 +4171,13 @@ namespace Server.Mobiles
                 MLQuestSystem.HandleSkillGain(this, skill);
             }
 
-            /* BEGIN CUSTOM ACTIVITY TRACKING: record skill milestone progress for achievement tracking */
+            /* BEGIN CUSTOM ACTIVITY TRACKING: record skill milestone progress for activity logs */
             ActivityTrackingService.RecordSkillMilestone(this, skill, oldBase);
             /* END CUSTOM ACTIVITY TRACKING */
+
+            /* BEGIN CUSTOM ACHIEVEMENT SYSTEM: evaluate skill achievements from live skill changes */
+            AchievementService.RecordSkillChange(this, skill, oldBase);
+            /* END CUSTOM ACHIEVEMENT SYSTEM */
         }
 
         public override void OnAccessLevelChanged(AccessLevel oldLevel)

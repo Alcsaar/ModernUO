@@ -7,6 +7,14 @@ public static class CustomFeatureFlagBootstrap
         CustomFeatureFlagManager.Configure();
 
         CustomFeatureFlagManager.Register(
+            CustomFeatureFlagKeys.AchievementSystem,
+            "Achievement System",
+            "Tracks and unlocks player achievements",
+            "Custom Systems",
+            defaultEnabled: true
+        );
+
+        CustomFeatureFlagManager.Register(
             CustomFeatureFlagKeys.TemplateSaver,
             "Template Saver",
             "Skill Stat Templates",

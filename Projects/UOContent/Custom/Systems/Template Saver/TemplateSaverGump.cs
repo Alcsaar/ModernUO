@@ -20,7 +20,7 @@ public sealed class TemplateSaverGump : DynamicGump
     private const int ButtonSkillsBase = 1100;
     private const int ButtonDeleteBase = 1200;
 
-    private const int EntriesPerPage = 6;
+    private const int EntriesPerPage = 4;
     private const int PreviewSkillCount = 7;
 
     private readonly Mobile _from;
@@ -59,8 +59,8 @@ public sealed class TemplateSaverGump : DynamicGump
     protected override void BuildLayout(ref DynamicGumpBuilder builder)
     {
         builder.AddPage();
-        builder.AddBackground(0, 0, 780, 520, 9270);
-        builder.AddAlphaRegion(15, 15, 750, 490);
+        builder.AddBackground(0, 0, 780, 545, 9270);
+        builder.AddAlphaRegion(15, 15, 750, 515);
 
         var templates = TemplateSaverManager.GetTemplates(_from);
         var slotLimit = TemplateSaverManager.GetTemplateSlotLimit(_from);
@@ -90,7 +90,7 @@ public sealed class TemplateSaverGump : DynamicGump
         builder.AddHtml(555, 82, 130, 20, HtmlColor("Undo Delete", "#C0C0C0"));
 
         builder.AddHtml(20, 115, 740, 2, "<basefont color=#808080><hr></basefont>");
-        builder.AddHtml(20, 122, 180, 20, HtmlColor("Saved Templates", "#00FFFF"));
+        builder.AddHtml(20, 130, 180, 20, HtmlColor("Saved Templates", "#00FFFF"));
 
         // Outer frame (gives that defined boxed look)
         builder.AddImageTiled(20, 126, 740, 2, 5058); // dark line
@@ -134,9 +134,12 @@ public sealed class TemplateSaverGump : DynamicGump
                 builder.AddButton(650, y + 2, 4017, 4019, ButtonDeleteBase + rowIndex);
                 builder.AddHtml(685, y + 4, 60, 20, HtmlColor("Delete", "#FF0000"));
 
-                // Outer frame (gives that defined boxed look)
-                builder.AddImageTiled(20, y + 78, 740, 2, 5058); // dark line
-                builder.AddImageTiled(20, y + 80, 740, 2, 2624); // highlight line
+                if (i + 1 < end)
+                {
+                    // Row separator.
+                    builder.AddImageTiled(20, y + 78, 740, 2, 5058);
+                    builder.AddImageTiled(20, y + 80, 740, 2, 2624);
+                }
 
                 y += 88;
             }
@@ -153,19 +156,19 @@ public sealed class TemplateSaverGump : DynamicGump
         int slotLimit
     )
     {
-        builder.AddHtml(20, 485, 250, 20, HtmlColor($"Page {pageIndex + 1}/{Math.Max(1, totalPages)}", "#FFFFFF"));
-        builder.AddHtml(250, 485, 220, 20, HtmlColor($"Templates: {entryCount}/{slotLimit}", "#C0C0C0"));
+        builder.AddHtml(20, 510, 220, 20, HtmlColor($"Page {pageIndex + 1}/{Math.Max(1, totalPages)}", "#FFFFFF"));
+        builder.AddHtml(250, 510, 220, 20, HtmlColor($"Templates: {entryCount}/{slotLimit}", "#C0C0C0"));
 
         if (pageIndex > 0)
         {
-            builder.AddButton(640, 483, 4014, 4016, ButtonPrevPage);
-            builder.AddHtml(675, 485, 45, 20, HtmlColor("Prev", "#FFFFFF"));
+            builder.AddButton(635, 508, 4014, 4016, ButtonPrevPage);
+            builder.AddHtml(670, 510, 45, 20, HtmlColor("Prev", "#FFFFFF"));
         }
 
         if (pageIndex + 1 < totalPages)
         {
-            builder.AddButton(700, 483, 4005, 4007, ButtonNextPage);
-            builder.AddHtml(735, 485, 45, 20, HtmlColor("Next", "#FFFFFF"));
+            builder.AddButton(705, 508, 4005, 4007, ButtonNextPage);
+            builder.AddHtml(740, 510, 35, 20, HtmlColor("Next", "#FFFFFF"));
         }
     }
 

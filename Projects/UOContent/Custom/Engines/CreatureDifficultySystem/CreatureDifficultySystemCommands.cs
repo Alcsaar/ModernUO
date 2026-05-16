@@ -140,7 +140,7 @@ public static class CreatureDifficultySystemCommands
 
             using var writer = new StreamWriter(path, false);
 
-            writer.WriteLine("TypeName,DisplayName,Tier,Score,Offense,Defense,Magic,Special,AutoDispel,BardImmune,AbilityCount,Abilities,ExportMode");
+            writer.WriteLine("TypeName,DisplayName,Tier,Score,Threat,Durability,Offense,Defense,Magic,Special,AutoDispel,BardImmune,AbilityCount,Abilities,ExportMode");
 
             for (var assemblyIndex = 0; assemblyIndex < assemblies.Length; assemblyIndex++)
             {
@@ -207,6 +207,8 @@ public static class CreatureDifficultySystemCommands
                         WriteCsvField(writer, displayName); writer.Write(',');
                         writer.Write(result.Tier); writer.Write(',');
                         writer.Write(result.Score.ToString("F2")); writer.Write(',');
+                        writer.Write(result.ThreatScore.ToString("F2")); writer.Write(',');
+                        writer.Write(result.DurabilityScore.ToString("F2")); writer.Write(',');
                         writer.Write(result.OffenseScore.ToString("F2")); writer.Write(',');
                         writer.Write(result.DefenseScore.ToString("F2")); writer.Write(',');
                         writer.Write(result.MagicScore.ToString("F2")); writer.Write(',');
@@ -378,6 +380,7 @@ public static class CreatureDifficultySystemCommands
 
             from.SendMessage($"Creature: {creature.GetType().Name}");
             from.SendMessage($"Tier: {result.Tier} | Score: {result.Score:F2}");
+            from.SendMessage($"Threat: {result.ThreatScore:F2} Durability: {result.DurabilityScore:F2}");
             from.SendMessage($"Offense: {result.OffenseScore:F2} Defense: {result.DefenseScore:F2}");
             from.SendMessage($"Magic: {result.MagicScore:F2} Special: {result.SpecialScore:F2}");
         }
