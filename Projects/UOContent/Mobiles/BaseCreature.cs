@@ -27,6 +27,9 @@ using Server.Targeting;
 /* BEGIN CUSTOM ACTIVITY TRACKING: expose the in-memory activity tracking service to creature death hooks */
 using Server.Custom.Engines.ActivityTracking;
 /* END CUSTOM ACTIVITY TRACKING */
+/* BEGIN CUSTOM ACHIEVEMENT SYSTEM: expose achievement progress tracking to creature death hooks */
+using Server.Custom.Systems.AchievementSystem;
+/* END CUSTOM ACHIEVEMENT SYSTEM */
 
 using Server.Engines.RelativeThreatSystem;
 using Server.Custom.Systems.CustomFeatureFlags;
@@ -3364,6 +3367,9 @@ namespace Server.Mobiles
                 /* BEGIN CUSTOM ACTIVITY TRACKING: notify activity tracking service of this creature kill event */
                 ActivityTrackingService.RecordCreatureKill(this, list);
                 /* END CUSTOM ACTIVITY TRACKING */
+                /* BEGIN CUSTOM ACHIEVEMENT SYSTEM: record achievement kill credit from the same death-rights list */
+                AchievementService.RecordCreatureKill(this, list);
+                /* END CUSTOM ACHIEVEMENT SYSTEM */
                 using var titles = PooledRefList<Mobile>.Create();
                 var fame = PooledRefList<int>.Create();
                 var karma = PooledRefList<int>.Create();
