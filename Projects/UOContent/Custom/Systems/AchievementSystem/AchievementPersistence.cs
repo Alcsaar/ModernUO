@@ -15,7 +15,7 @@ public sealed class AchievementPersistence : GenericPersistence
 
     public override void Serialize(IGenericWriter writer)
     {
-        writer.WriteEncodedInt(1); // version
+        writer.WriteEncodedInt(3); // version
         AchievementService.SerializePersistence(writer);
     }
 
@@ -31,6 +31,16 @@ public sealed class AchievementPersistence : GenericPersistence
                     break;
                 }
             case 1:
+                {
+                    AchievementService.DeserializePersistence(reader, version);
+                    break;
+                }
+            case 2:
+                {
+                    AchievementService.DeserializePersistence(reader, version);
+                    break;
+                }
+            case 3:
                 {
                     AchievementService.DeserializePersistence(reader, version);
                     break;
