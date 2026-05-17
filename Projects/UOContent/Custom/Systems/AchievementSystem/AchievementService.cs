@@ -9,6 +9,7 @@ using Server.Items;
 using Server.Logging;
 using Server.Mobiles;
 using Server.Network;
+using Server.Regions;
 
 namespace Server.Custom.Systems.AchievementSystem;
 
@@ -16,6 +17,7 @@ public static class AchievementService
 {
     private const string AccountAllGrandmasterSkillsAchievementId = "account_all_grandmaster_skills";
     private const string AccountGrandmasterSkillProgressPrefix = "account_gm_skill_";
+    private const string WorldExplorerAchievementId = "world_explorer";
 
     private static readonly ILogger Logger = LogFactory.GetLogger(typeof(AchievementService));
     private static readonly Dictionary<string, AchievementDefinition> _definitions = new(StringComparer.OrdinalIgnoreCase);
@@ -25,6 +27,7 @@ public static class AchievementService
     private static readonly Dictionary<uint, AchievementNotificationRecord> _activeNotifications = new();
     private static readonly Dictionary<string, AchievementServerFirstRecord> _serverFirsts = new(StringComparer.OrdinalIgnoreCase);
     private static readonly Dictionary<string, List<AchievementServerFirstCandidateRecord>> _serverFirstCandidates = new(StringComparer.OrdinalIgnoreCase);
+    private static readonly Dictionary<uint, string> _lastExplorationRegion = new();
     private static bool _allowStaffServerFirstsForTesting;
     private static bool _configured;
     private static bool _initialized;
@@ -33,6 +36,8 @@ public static class AchievementService
     {
         AchievementJournalView.Overview,
         AchievementJournalView.CharacterSkills,
+        AchievementJournalView.CharacterHunting,
+        AchievementJournalView.CharacterExploration,
         AchievementJournalView.CharacterHarvesting,
         AchievementJournalView.CharacterEconomy,
         AchievementJournalView.Account,
@@ -119,11 +124,205 @@ public static class AchievementService
         (CraftResource.Valorite, "Valorite")
     };
 
-    private static readonly int[] _harvestTierThresholds = { 500, 1000, 5000 };
-    private static readonly int[] _monsterGoldTierThresholds = { 50000, 100000, 250000, 500000, 1000000, 5000000, 10000000 };
-    private static readonly int[] _treasureMapGoldTierThresholds = { 25000, 50000, 100000, 250000, 500000, 1000000, 2500000 };
-    private static readonly int[] _dungeonChestGoldTierThresholds = { 10000, 25000, 50000, 100000, 250000, 500000, 1000000 };
-    private static readonly int[] _vendorSaleGoldTierThresholds = { 10000, 25000, 50000, 100000, 250000, 500000, 1000000 };
+    private static readonly int[] _harvestTierThresholds = { 500, 2500, 5000, 10000 };
+    private static readonly int[] _monsterGoldTierThresholds = { 50000, 250000, 1000000, 5000000, 10000000 };
+    private static readonly int[] _treasureMapGoldTierThresholds = { 25000, 100000, 500000, 1000000, 2500000 };
+    private static readonly int[] _dungeonChestGoldTierThresholds = { 10000, 50000, 250000, 500000, 1000000 };
+    private static readonly int[] _vendorSaleGoldTierThresholds = { 10000, 50000, 250000, 500000, 1000000 };
+    private static readonly int[] _creatureFamilyKillTierThresholds = { 500, 2500, 5000, 10000 };
+    private static readonly int[] _creatureSpecificKillTierThresholds = { 100, 500, 1000, 2500 };
+    private static readonly int[] _creatureEliteKillTierThresholds = { 25, 100, 250, 500 };
+    private static readonly int[] _treasureMapCompletionTierThresholds = { 1, 10, 50, 100 };
+
+    /* BEGIN ACHIEVEMENT EXPLORATION: named region visit achievements for towns, dungeons, and shrines */
+    private static readonly ExplorationVisitDefinition[] _townVisitDefinitions =
+    {
+        new("town_britain", "Britain"),
+        new("town_trinsic", "Trinsic"),
+        new("town_minoc", "Minoc"),
+        new("town_moonglow", "Moonglow"),
+        new("town_yew", "Yew"),
+        new("town_skara_brae", "Skara Brae"),
+        new("town_new_haven", "New Haven"),
+        new("town_magincia", "Magincia"),
+        new("town_vesper", "Vesper"),
+        new("town_jhelom", "Jhelom"),
+        new("town_nujelm", "Nujel'm"),
+        new("town_serpents_hold", "Serpent's Hold")
+    };
+
+    private static readonly ExplorationVisitDefinition[] _dungeonVisitDefinitions =
+    {
+        new("dungeon_covetous", "Covetous"),
+        new("dungeon_deceit", "Deceit"),
+        new("dungeon_despise", "Despise"),
+        new("dungeon_destard", "Destard"),
+        new("dungeon_wrong", "Wrong"),
+        new("dungeon_shame", "Shame"),
+        new("dungeon_hythloth", "Hythloth"),
+        new("dungeon_doom", "Doom")
+    };
+
+    private static readonly ExplorationVisitDefinition[] _shrineVisitDefinitions =
+    {
+        new("shrine_chaos", "Chaos Shrine", new Point3D(1470, 843, 0), 12),
+        new("shrine_compassion", "Compassion Shrine", new Point3D(1857, 865, -1), 12),
+        new("shrine_honesty", "Honesty Shrine", new Point3D(4220, 563, 36), 12),
+        new("shrine_honor", "Honor Shrine", new Point3D(1732, 3528, 0), 12),
+        new("shrine_humility", "Humility Shrine", new Point3D(4264, 3707, 0), 12),
+        new("shrine_justice", "Justice Shrine", new Point3D(1300, 644, 8), 12),
+        new("shrine_sacrifice", "Sacrifice Shrine", new Point3D(3355, 302, 9), 12),
+        new("shrine_spirituality", "Spirituality Shrine", new Point3D(1606, 2490, 5), 12),
+        new("shrine_valor", "Valor Shrine", new Point3D(2500, 3931, 3), 12)
+    };
+    /* END ACHIEVEMENT EXPLORATION */
+
+    /* BEGIN ACHIEVEMENT CREATURE KILLS: concrete class-name groups avoid reflection in the death hot path */
+    private static readonly string[] _ratmanCreatureTypes =
+    {
+        "Ratman",
+        "RatmanArcher",
+        "RatmanMage"
+    };
+
+    private static readonly string[] _lizardmanCreatureTypes =
+    {
+        "Lizardman"
+    };
+
+    private static readonly string[] _reptileCreatureTypes =
+    {
+        "Lizardman",
+        "Drake",
+        "Dragon",
+        "WhiteWyrm",
+        "AncientWyrm",
+        "ShadowWyrm",
+        "SerpentineDragon",
+        "SkeletalDragon",
+        "GreaterDragon",
+        "Wyvern",
+        "SeaSerpent",
+        "DeepSeaSerpent",
+        "Kraken",
+        "Leviathan",
+        "OphidianWarrior",
+        "OphidianKnight",
+        "OphidianMage",
+        "OphidianMatriarch",
+        "OphidianArchmage",
+        "Hydra"
+    };
+
+    private static readonly string[] _dragonCreatureTypes =
+    {
+        "Dragon",
+        "WhiteWyrm",
+        "AncientWyrm",
+        "ShadowWyrm",
+        "SerpentineDragon",
+        "SkeletalDragon",
+        "GreaterDragon"
+    };
+
+    private static readonly string[] _drakeCreatureTypes =
+    {
+        "Drake"
+    };
+
+    private static readonly string[] _lichCreatureTypes =
+    {
+        "Lich"
+    };
+
+    private static readonly string[] _lichLordCreatureTypes =
+    {
+        "LichLord"
+    };
+
+    private static readonly string[] _ancientLichCreatureTypes =
+    {
+        "AncientLich"
+    };
+
+    private static readonly string[] _undeadCreatureTypes =
+    {
+        "Skeleton",
+        "SkeletalKnight",
+        "SkeletalMage",
+        "BoneKnight",
+        "BoneMagi",
+        "Zombie",
+        "Ghoul",
+        "Mummy",
+        "Shade",
+        "Spectre",
+        "Wraith",
+        "Lich",
+        "LichLord",
+        "AncientLich",
+        "RottingCorpse",
+        "SkeletalDragon",
+        "Bogle",
+        "WailingBanshee",
+        "RestlessSoul",
+        "KhaldunRevenant",
+        "SpectralArmour",
+        "VampireBat"
+    };
+
+    private static readonly string[] _daemonCreatureTypes =
+    {
+        "Daemon",
+        "Balron",
+        "ChaosDaemon",
+        "Moloch"
+    };
+
+    private static readonly string[] _elementalCreatureTypes =
+    {
+        "EarthElemental",
+        "AirElemental",
+        "FireElemental",
+        "WaterElemental",
+        "PoisonElemental",
+        "BloodElemental",
+        "SnowElemental",
+        "IceElemental",
+        "AcidElemental",
+        "Efreet"
+    };
+
+    private static readonly string[] _orcCreatureTypes =
+    {
+        "Orc",
+        "OrcCaptain",
+        "OrcishLord",
+        "OrcBomber"
+    };
+
+    private static readonly string[] _ogreTrollCreatureTypes =
+    {
+        "Ogre",
+        "OgreLord",
+        "ArcticOgreLord",
+        "Troll",
+        "FrostTroll",
+        "Ettin"
+    };
+
+    private static readonly string[] _arachnidCreatureTypes =
+    {
+        "GiantSpider",
+        "GiantBlackWidow",
+        "FrostSpider",
+        "DreadSpider",
+        "TerathanDrone",
+        "TerathanWarrior",
+        "TerathanAvenger",
+        "TerathanMatriarch"
+    };
+    /* END ACHIEVEMENT CREATURE KILLS */
 
     public static void Configure()
     {
@@ -136,6 +335,7 @@ public static class AchievementService
 
         AchievementPersistence.Configure();
         AchievementCommands.Configure();
+        EventSink.Movement += OnMovement;
         EnsureFlagRegistered();
         RegisterDefinitions();
     }
@@ -156,6 +356,35 @@ public static class AchievementService
     {
         return CustomFeatureFlagManager.IsEnabled(CustomFeatureFlagKeys.AchievementSystem);
     }
+
+    /* BEGIN ACHIEVEMENT FEATURE FLAG: centralize custom feature flag writes for staff controls */
+    public static CustomFeatureFlagStatus GetSystemFlagStatus()
+    {
+        EnsureFlagRegistered();
+        return CustomFeatureFlagManager.GetStatus(CustomFeatureFlagKeys.AchievementSystem);
+    }
+
+    public static bool TrySetSystemEnabled(bool enabled, Mobile modifiedBy, out string failureReason)
+    {
+        EnsureFlagRegistered();
+        return CustomFeatureFlagManager.SetEnabled(
+            CustomFeatureFlagKeys.AchievementSystem,
+            enabled,
+            modifiedBy?.Name,
+            out failureReason
+        );
+    }
+
+    public static bool TryToggleSystemEnabled(Mobile modifiedBy, out string failureReason)
+    {
+        EnsureFlagRegistered();
+        return CustomFeatureFlagManager.Toggle(
+            CustomFeatureFlagKeys.AchievementSystem,
+            modifiedBy?.Name,
+            out failureReason
+        );
+    }
+    /* END ACHIEVEMENT FEATURE FLAG */
 
     public static bool AllowStaffServerFirstsForTesting
     {
@@ -257,7 +486,7 @@ public static class AchievementService
         {
             if (
                 definition.TriggerType != AchievementTriggerType.CreatureKillCount ||
-                !string.Equals(definition.CreatureTypeName, creatureTypeName, StringComparison.OrdinalIgnoreCase)
+                !MatchesCreatureKillDefinition(definition, creatureTypeName)
             )
             {
                 continue;
@@ -399,6 +628,34 @@ public static class AchievementService
             }
         }
     }
+
+    public static void RecordTreasureMapCompleted(Mobile from)
+    {
+        if (from is not PlayerMobile player || !ShouldTrackPlayer(player) || !IsSystemEnabled())
+        {
+            return;
+        }
+
+        foreach (var definition in _definitions.Values)
+        {
+            if (
+                definition.TriggerType != AchievementTriggerType.TreasureMapCompletionCount ||
+                !IsAchievementEarnable(definition)
+            )
+            {
+                continue;
+            }
+
+            var state = GetOrCreateProgressState(player, definition);
+            var progress = GetProgressValue(state, definition.Id) + 1;
+            UpdateProgressValue(state, definition.Id, progress);
+
+            if (progress >= definition.Threshold)
+            {
+                UnlockAchievement(player, state, definition);
+            }
+        }
+    }
     /* END ACHIEVEMENT SYSTEM CUSTOMIZATION */
 
     public static void ResetPlayer(PlayerMobile player)
@@ -429,24 +686,38 @@ public static class AchievementService
 
     /* BEGIN ACHIEVEMENT SYSTEM CUSTOMIZATION: staff pruning removes one achievement from achievement-owned state */
     public static bool TryRemoveAchievement(
+        Mobile staff,
         PlayerMobile player,
         string achievementId,
         out AchievementDefinition definition,
         out bool removedUnlock,
-        out bool removedProgress
+        out bool removedProgress,
+        out string failureReason
     )
     {
         definition = null;
         removedUnlock = false;
         removedProgress = false;
+        failureReason = null;
 
         if (player == null || string.IsNullOrWhiteSpace(achievementId))
         {
+            failureReason = "A player and achievement id are required.";
             return false;
         }
 
         if (!_definitions.TryGetValue(achievementId, out definition))
         {
+            failureReason = $"Unknown achievement id '{achievementId}'.";
+            return false;
+        }
+
+        if (
+            definition.TriggerType == AchievementTriggerType.ServerFirstSkillMilestone &&
+            (staff == null || staff.AccessLevel < AccessLevel.Administrator)
+        )
+        {
+            failureReason = "Only administrators can remove server-first achievements.";
             return false;
         }
 
@@ -476,6 +747,92 @@ public static class AchievementService
 
         return true;
     }
+
+    /* BEGIN ACHIEVEMENT ADMIN CONTROLS: staff grant support centralizes manual unlock state changes */
+    public static bool TryGrantAchievement(
+        Mobile staff,
+        PlayerMobile player,
+        string achievementId,
+        out AchievementDefinition definition,
+        out string failureReason
+    )
+    {
+        definition = null;
+        failureReason = null;
+
+        if (!IsSystemEnabled())
+        {
+            failureReason = "Achievement system is disabled.";
+            return false;
+        }
+
+        if (player == null || string.IsNullOrWhiteSpace(achievementId))
+        {
+            failureReason = "A player and achievement id are required.";
+            return false;
+        }
+
+        if (!_definitions.TryGetValue(achievementId, out definition))
+        {
+            failureReason = $"Unknown achievement id '{achievementId}'.";
+            return false;
+        }
+
+        if (
+            definition.TriggerType == AchievementTriggerType.ServerFirstSkillMilestone &&
+            (staff == null || staff.AccessLevel < AccessLevel.Administrator)
+        )
+        {
+            failureReason = "Only administrators can grant server-first achievements.";
+            return false;
+        }
+
+        if (IsUnlocked(player, definition.Id))
+        {
+            failureReason = $"{player.Name} already has {definition.Id} ({definition.Name}).";
+            return false;
+        }
+
+        if (definition.TriggerType == AchievementTriggerType.ServerFirstSkillMilestone)
+        {
+            if (_serverFirsts.TryGetValue(definition.Id, out var existingRecord))
+            {
+                failureReason = $"{definition.Id} is already claimed by {existingRecord.PlayerName}.";
+                return false;
+            }
+
+            var timestamp = DateTime.UtcNow;
+            var record = new AchievementServerFirstRecord
+            {
+                AchievementId = definition.Id,
+                PlayerSerial = player.Serial.Value,
+                PlayerName = player.Name,
+                AccountName = player.Account?.Username ?? string.Empty,
+                Skill = definition.Skill,
+                SkillDisplayName = GetSkillDisplayName(definition.Skill),
+                AchievedUtc = timestamp
+            };
+
+            _serverFirsts[definition.Id] = record;
+            AddServerFirstCandidate(record, disqualified: false);
+            UnlockServerFirstRecord(record, definition);
+            TryDisplayNextNotification(player);
+            return true;
+        }
+
+        var state = GetOrCreateProgressState(player, definition);
+        UpdateProgressValue(state, definition.Id, definition.Threshold);
+        UnlockAchievement(player, state, definition);
+
+        if (definition.TriggerType == AchievementTriggerType.ExplorationRegionVisit)
+        {
+            TryUnlockWorldExplorer(player);
+        }
+
+        TryDisplayNextNotification(player);
+        return true;
+    }
+    /* END ACHIEVEMENT ADMIN CONTROLS */
     /* END ACHIEVEMENT SYSTEM CUSTOMIZATION */
 
     /* BEGIN ACHIEVEMENT SERVER FIRSTS: staff controls and read models for shard-wide first records */
@@ -643,6 +1000,8 @@ public static class AchievementService
         {
             AchievementJournalView.Overview => "Overview",
             AchievementJournalView.CharacterSkills => "Skills",
+            AchievementJournalView.CharacterHunting => "Hunting",
+            AchievementJournalView.CharacterExploration => "Exploration",
             AchievementJournalView.CharacterHarvesting => "Harvesting",
             AchievementJournalView.CharacterEconomy => "Economy",
             AchievementJournalView.Account => "Account",
@@ -708,6 +1067,89 @@ public static class AchievementService
         });
 
         return definitions;
+    }
+
+    public static List<AchievementDefinition> GetJournalDefinitions(PlayerMobile player, AchievementJournalView view)
+    {
+        var definitions = GetDefinitions(view);
+
+        if (player == null || definitions.Count <= 1)
+        {
+            return definitions;
+        }
+
+        CollapseTierDefinitions(player, definitions);
+        return definitions;
+    }
+
+    public static List<AchievementDefinition> GetTierMilestones(AchievementDefinition definition)
+    {
+        var milestones = new List<AchievementDefinition>();
+
+        if (definition == null || string.IsNullOrWhiteSpace(definition.TierGroupId))
+        {
+            if (definition != null)
+            {
+                milestones.Add(definition);
+            }
+
+            return milestones;
+        }
+
+        foreach (var candidate in _definitions.Values)
+        {
+            if (string.Equals(candidate.TierGroupId, definition.TierGroupId, StringComparison.OrdinalIgnoreCase))
+            {
+                milestones.Add(candidate);
+            }
+        }
+
+        milestones.Sort(static (a, b) =>
+        {
+            var thresholdCompare = a.Threshold.CompareTo(b.Threshold);
+
+            if (thresholdCompare != 0)
+            {
+                return thresholdCompare;
+            }
+
+            return a.SortOrder.CompareTo(b.SortOrder);
+        });
+
+        return milestones;
+    }
+
+    private static void CollapseTierDefinitions(PlayerMobile player, List<AchievementDefinition> definitions)
+    {
+        var tierIndexes = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+
+        for (var i = 0; i < definitions.Count; i++)
+        {
+            var definition = definitions[i];
+
+            if (string.IsNullOrWhiteSpace(definition.TierGroupId))
+            {
+                continue;
+            }
+
+            if (!tierIndexes.TryGetValue(definition.TierGroupId, out var selectedIndex))
+            {
+                tierIndexes[definition.TierGroupId] = i;
+                continue;
+            }
+
+            var selected = definitions[selectedIndex];
+            var selectedUnlocked = IsUnlocked(player, selected.Id);
+            var currentUnlocked = IsUnlocked(player, definition.Id);
+
+            if (selectedUnlocked || currentUnlocked && definition.Threshold > selected.Threshold)
+            {
+                definitions[selectedIndex] = definition;
+            }
+
+            definitions.RemoveAt(i);
+            i--;
+        }
     }
 
     public static int GetDefinitionCount(AchievementJournalView view = AchievementJournalView.Overview)
@@ -891,12 +1333,45 @@ public static class AchievementService
             return CountAccountGrandmasterSkills(GetOrCreateAccountState(player));
         }
 
+        if (definition.TriggerType == AchievementTriggerType.ExplorationRegionVisitAll)
+        {
+            return CountUnlockedExplorationVisits(player);
+        }
+
         if (definition.TriggerType == AchievementTriggerType.EconomyGoldEarned)
         {
             return GetProgressValue(state, GetEconomyGoldProgressId(definition.EconomyGoldSource));
         }
 
         return 0;
+    }
+
+    public static int GetDisplayedTierProgress(PlayerMobile player, IReadOnlyList<AchievementDefinition> milestones)
+    {
+        if (player == null || milestones == null || milestones.Count == 0)
+        {
+            return 0;
+        }
+
+        var progress = 0;
+
+        for (var i = 0; i < milestones.Count; i++)
+        {
+            var milestone = milestones[i];
+            var milestoneProgress = GetDisplayedProgress(player, milestone);
+
+            if (IsUnlocked(player, milestone.Id) && milestone.Threshold > milestoneProgress)
+            {
+                milestoneProgress = milestone.Threshold;
+            }
+
+            if (milestoneProgress > progress)
+            {
+                progress = milestoneProgress;
+            }
+        }
+
+        return progress;
     }
 
     internal static bool IsUnlocked(PlayerMobile player, string achievementId)
@@ -1265,10 +1740,271 @@ public static class AchievementService
         );
         /* END ACHIEVEMENT ACCOUNT SKILL MASTERY */
 
+        RegisterCreatureKillDefinitions();
+        RegisterExplorationDefinitions();
         RegisterHarvestDefinitions();
         RegisterFishingDefinitions();
         RegisterEconomyDefinitions();
     }
+
+    /* BEGIN ACHIEVEMENT EXPLORATION: first-visit and treasure-map completion definitions */
+    private static void RegisterExplorationDefinitions()
+    {
+        var sortOrder = 900;
+
+        RegisterExplorationVisitDefinitions(
+            _townVisitDefinitions,
+            "First Visit: {0}",
+            "Visit {0} for the first time.",
+            ref sortOrder
+        );
+
+        RegisterExplorationVisitDefinitions(
+            _dungeonVisitDefinitions,
+            "First Descent: {0}",
+            "Enter {0} for the first time.",
+            ref sortOrder
+        );
+
+        RegisterExplorationVisitDefinitions(
+            _shrineVisitDefinitions,
+            "Pilgrimage: {0}",
+            "Visit the {0} for the first time.",
+            ref sortOrder
+        );
+
+        RegisterDefinition(
+            new AchievementDefinition
+            {
+                Id = WorldExplorerAchievementId,
+                Name = "World Explorer",
+                Description = "Visit every tracked town, dungeon, and shrine.",
+                Category = AchievementCategory.Exploration,
+                TriggerType = AchievementTriggerType.ExplorationRegionVisitAll,
+                Scope = AchievementScope.Character,
+                Threshold = GetExplorationVisitDefinitionCount(),
+                SortOrder = sortOrder++
+            }
+        );
+
+        RegisterTreasureMapCompletionDefinitions(ref sortOrder);
+    }
+
+    private static void RegisterExplorationVisitDefinitions(
+        IReadOnlyList<ExplorationVisitDefinition> visits,
+        string nameFormat,
+        string descriptionFormat,
+        ref int sortOrder
+    )
+    {
+        for (var i = 0; i < visits.Count; i++)
+        {
+            var visit = visits[i];
+
+            RegisterDefinition(
+                new AchievementDefinition
+                {
+                    Id = $"visit_{visit.IdSuffix}",
+                    Name = string.Format(nameFormat, visit.RegionName),
+                    Description = string.Format(descriptionFormat, visit.RegionName),
+                    Category = AchievementCategory.Exploration,
+                    TriggerType = AchievementTriggerType.ExplorationRegionVisit,
+                    Scope = AchievementScope.Character,
+                    ExplorationRegionName = visit.RegionName,
+                    Threshold = 1,
+                    SortOrder = sortOrder++
+                }
+            );
+        }
+    }
+
+    private static void RegisterTreasureMapCompletionDefinitions(ref int sortOrder)
+    {
+        for (var i = 0; i < _treasureMapCompletionTierThresholds.Length; i++)
+        {
+            var threshold = _treasureMapCompletionTierThresholds[i];
+
+            RegisterDefinition(
+                new AchievementDefinition
+                {
+                    Id = $"complete_treasure_maps_{threshold}",
+                    Name = $"Treasure Trail {RomanizeTier(i + 1)}",
+                    Description = $"Complete {threshold:N0} treasure map{(threshold == 1 ? string.Empty : "s")}.",
+                    Category = AchievementCategory.Exploration,
+                    TriggerType = AchievementTriggerType.TreasureMapCompletionCount,
+                    Scope = AchievementScope.Character,
+                    TierGroupId = "complete_treasure_maps",
+                    Threshold = threshold,
+                    SortOrder = sortOrder++
+                }
+            );
+        }
+    }
+    /* END ACHIEVEMENT EXPLORATION */
+
+    /* BEGIN ACHIEVEMENT CREATURE KILLS: character kill tier definitions for major monster families */
+    private static void RegisterCreatureKillDefinitions()
+    {
+        var sortOrder = 800;
+
+        RegisterCreatureKillTierDefinitions(
+            "kill_ratmen",
+            "Rat Catcher",
+            "Defeat {0:N0} ratmen.",
+            _ratmanCreatureTypes,
+            _creatureFamilyKillTierThresholds,
+            ref sortOrder
+        );
+
+        RegisterCreatureKillTierDefinitions(
+            "kill_lizardmen",
+            "Scale Breaker",
+            "Defeat {0:N0} lizardmen.",
+            _lizardmanCreatureTypes,
+            _creatureFamilyKillTierThresholds,
+            ref sortOrder
+        );
+
+        RegisterCreatureKillTierDefinitions(
+            "kill_reptiles",
+            "Reptile Hunter",
+            "Defeat {0:N0} reptilian monsters.",
+            _reptileCreatureTypes,
+            _creatureFamilyKillTierThresholds,
+            ref sortOrder
+        );
+
+        RegisterCreatureKillTierDefinitions(
+            "kill_undead",
+            "Grave Warden",
+            "Defeat {0:N0} undead.",
+            _undeadCreatureTypes,
+            _creatureFamilyKillTierThresholds,
+            ref sortOrder
+        );
+
+        RegisterCreatureKillTierDefinitions(
+            "kill_dragons",
+            "Dragon Slayer",
+            "Defeat {0:N0} dragons or wyrms.",
+            _dragonCreatureTypes,
+            _creatureSpecificKillTierThresholds,
+            ref sortOrder
+        );
+
+        RegisterCreatureKillTierDefinitions(
+            "kill_drakes",
+            "Drake Hunter",
+            "Defeat {0:N0} drakes.",
+            _drakeCreatureTypes,
+            _creatureSpecificKillTierThresholds,
+            ref sortOrder
+        );
+
+        RegisterCreatureKillTierDefinitions(
+            "kill_liches",
+            "Lich Hunter",
+            "Defeat {0:N0} liches.",
+            _lichCreatureTypes,
+            _creatureSpecificKillTierThresholds,
+            ref sortOrder
+        );
+
+        RegisterCreatureKillTierDefinitions(
+            "kill_lich_lords",
+            "Lord of Dust",
+            "Defeat {0:N0} lich lords.",
+            _lichLordCreatureTypes,
+            _creatureSpecificKillTierThresholds,
+            ref sortOrder
+        );
+
+        RegisterCreatureKillTierDefinitions(
+            "kill_ancient_liches",
+            "Ancient Silence",
+            "Defeat {0:N0} ancient liches.",
+            _ancientLichCreatureTypes,
+            _creatureEliteKillTierThresholds,
+            ref sortOrder
+        );
+
+        RegisterCreatureKillTierDefinitions(
+            "kill_daemons",
+            "Daemon Bane",
+            "Defeat {0:N0} daemons.",
+            _daemonCreatureTypes,
+            _creatureSpecificKillTierThresholds,
+            ref sortOrder
+        );
+
+        RegisterCreatureKillTierDefinitions(
+            "kill_elementals",
+            "Elemental Breaker",
+            "Defeat {0:N0} elementals.",
+            _elementalCreatureTypes,
+            _creatureFamilyKillTierThresholds,
+            ref sortOrder
+        );
+
+        RegisterCreatureKillTierDefinitions(
+            "kill_orcs",
+            "Orc Foe",
+            "Defeat {0:N0} orcs.",
+            _orcCreatureTypes,
+            _creatureFamilyKillTierThresholds,
+            ref sortOrder
+        );
+
+        RegisterCreatureKillTierDefinitions(
+            "kill_ogres_trolls",
+            "Brute Breaker",
+            "Defeat {0:N0} ogres, trolls, or ettins.",
+            _ogreTrollCreatureTypes,
+            _creatureFamilyKillTierThresholds,
+            ref sortOrder
+        );
+
+        RegisterCreatureKillTierDefinitions(
+            "kill_arachnids",
+            "Web Cutter",
+            "Defeat {0:N0} spiders or terathans.",
+            _arachnidCreatureTypes,
+            _creatureFamilyKillTierThresholds,
+            ref sortOrder
+        );
+    }
+
+    private static void RegisterCreatureKillTierDefinitions(
+        string idPrefix,
+        string namePrefix,
+        string descriptionFormat,
+        string[] creatureTypeNames,
+        IReadOnlyList<int> thresholds,
+        ref int sortOrder
+    )
+    {
+        for (var i = 0; i < thresholds.Count; i++)
+        {
+            var threshold = thresholds[i];
+
+            RegisterDefinition(
+                new AchievementDefinition
+                {
+                    Id = $"{idPrefix}_{threshold}",
+                    Name = $"{namePrefix} {RomanizeTier(i + 1)}",
+                    Description = string.Format(descriptionFormat, threshold),
+                    Category = AchievementCategory.Hunting,
+                    TriggerType = AchievementTriggerType.CreatureKillCount,
+                    Scope = AchievementScope.Character,
+                    TierGroupId = idPrefix,
+                    CreatureTypeNames = creatureTypeNames,
+                    Threshold = threshold,
+                    SortOrder = sortOrder++
+                }
+            );
+        }
+    }
+    /* END ACHIEVEMENT CREATURE KILLS */
 
     private static void RegisterHarvestDefinitions()
     {
@@ -1291,6 +2027,7 @@ public static class AchievementService
                         Category = AchievementCategory.Harvesting,
                         TriggerType = AchievementTriggerType.HarvestResourceCount,
                         Scope = AchievementScope.Character,
+                        TierGroupId = $"mine_{ore.Resource.ToString().ToLowerInvariant()}",
                         HarvestKind = AchievementHarvestKind.Mining,
                         Resource = ore.Resource,
                         Threshold = threshold,
@@ -1313,6 +2050,7 @@ public static class AchievementService
                     Category = AchievementCategory.Harvesting,
                     TriggerType = AchievementTriggerType.HarvestResourceCount,
                     Scope = AchievementScope.Character,
+                    TierGroupId = "chop_regular_logs",
                     HarvestKind = AchievementHarvestKind.Lumberjacking,
                     Resource = CraftResource.RegularWood,
                     Threshold = threshold,
@@ -1339,6 +2077,7 @@ public static class AchievementService
                     Category = AchievementCategory.Harvesting,
                     TriggerType = AchievementTriggerType.FishingCatchCount,
                     Scope = AchievementScope.Character,
+                    TierGroupId = "catch_normal_fish",
                     FishingCatchKind = AchievementFishingCatchKind.NormalFish,
                     Threshold = threshold,
                     SortOrder = sortOrder++
@@ -1481,6 +2220,7 @@ public static class AchievementService
                     Category = AchievementCategory.Economy,
                     TriggerType = AchievementTriggerType.EconomyGoldEarned,
                     Scope = AchievementScope.Character,
+                    TierGroupId = GetEconomyGoldProgressId(source),
                     EconomyGoldSource = source,
                     Threshold = threshold,
                     SortOrder = sortOrder++
@@ -2250,6 +2990,14 @@ public static class AchievementService
                 definition.Category == AchievementCategory.Skills &&
                 !definition.IsLegacy &&
                 definition.TriggerType != AchievementTriggerType.ServerFirstSkillMilestone,
+            AchievementJournalView.CharacterHunting =>
+                definition.Scope == AchievementScope.Character &&
+                definition.Category == AchievementCategory.Hunting &&
+                !definition.IsLegacy,
+            AchievementJournalView.CharacterExploration =>
+                definition.Scope == AchievementScope.Character &&
+                definition.Category == AchievementCategory.Exploration &&
+                !definition.IsLegacy,
             AchievementJournalView.CharacterHarvesting =>
                 definition.Scope == AchievementScope.Character &&
                 definition.Category == AchievementCategory.Harvesting &&
@@ -2266,6 +3014,215 @@ public static class AchievementService
         };
     }
 
+    /* BEGIN ACHIEVEMENT CREATURE KILLS: match exact configured creature class names without runtime type hierarchy scans */
+    private static bool MatchesCreatureKillDefinition(AchievementDefinition definition, string creatureTypeName)
+    {
+        if (definition == null || string.IsNullOrWhiteSpace(creatureTypeName))
+        {
+            return false;
+        }
+
+        if (string.Equals(definition.CreatureTypeName, creatureTypeName, StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        var creatureTypeNames = definition.CreatureTypeNames;
+
+        if (creatureTypeNames == null)
+        {
+            return false;
+        }
+
+        for (var i = 0; i < creatureTypeNames.Length; i++)
+        {
+            if (string.Equals(creatureTypeNames[i], creatureTypeName, StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+    /* END ACHIEVEMENT CREATURE KILLS */
+
+    /* BEGIN ACHIEVEMENT EXPLORATION: movement hook records first visits to configured major regions */
+    private static void OnMovement(MovementEventArgs args)
+    {
+        if (args.Mobile is not PlayerMobile player || !ShouldTrackPlayer(player) || !IsSystemEnabled())
+        {
+            return;
+        }
+
+        if (!TryGetExplorationRegion(player, out var regionName))
+        {
+            return;
+        }
+
+        var serial = player.Serial.Value;
+
+        if (
+            _lastExplorationRegion.TryGetValue(serial, out var lastRegion) &&
+            string.Equals(lastRegion, regionName, StringComparison.OrdinalIgnoreCase)
+        )
+        {
+            return;
+        }
+
+        _lastExplorationRegion[serial] = regionName;
+        RecordExplorationRegionVisit(player, regionName);
+    }
+
+    private static bool TryGetExplorationRegion(PlayerMobile player, out string regionName)
+    {
+        regionName = null;
+
+        if (player == null)
+        {
+            return false;
+        }
+
+        return TryGetExplorationRegion(player.Region, _townVisitDefinitions, out regionName) ||
+            TryGetExplorationRegion(player.Region, _dungeonVisitDefinitions, out regionName) ||
+            TryGetShrineExplorationRegion(player, out regionName);
+    }
+
+    private static bool TryGetExplorationRegion(
+        Region region,
+        IReadOnlyList<ExplorationVisitDefinition> visits,
+        out string regionName
+    )
+    {
+        regionName = null;
+
+        if (region == null)
+        {
+            return false;
+        }
+
+        for (var i = 0; i < visits.Count; i++)
+        {
+            var visit = visits[i];
+
+            if (region.IsPartOf(visit.RegionName))
+            {
+                regionName = visit.RegionName;
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static bool TryGetShrineExplorationRegion(PlayerMobile player, out string regionName)
+    {
+        regionName = null;
+
+        if (player?.Map != Map.Felucca && player?.Map != Map.Trammel)
+        {
+            return false;
+        }
+
+        for (var i = 0; i < _shrineVisitDefinitions.Length; i++)
+        {
+            var visit = _shrineVisitDefinitions[i];
+
+            if (visit.Location != Point3D.Zero && player.InRange(visit.Location, visit.Range))
+            {
+                regionName = visit.RegionName;
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static void RecordExplorationRegionVisit(PlayerMobile player, string regionName)
+    {
+        if (player == null || string.IsNullOrWhiteSpace(regionName))
+        {
+            return;
+        }
+
+        foreach (var definition in _definitions.Values)
+        {
+            if (
+                definition.TriggerType != AchievementTriggerType.ExplorationRegionVisit ||
+                !string.Equals(definition.ExplorationRegionName, regionName, StringComparison.OrdinalIgnoreCase) ||
+                !IsAchievementEarnable(definition)
+            )
+            {
+                continue;
+            }
+
+            var state = GetOrCreateProgressState(player, definition);
+
+            if (state.UnlockedAchievements.ContainsKey(definition.Id))
+            {
+                return;
+            }
+
+            UpdateProgressValue(state, definition.Id, definition.Threshold);
+            UnlockAchievement(player, state, definition);
+            TryUnlockWorldExplorer(player);
+            return;
+        }
+    }
+
+    private static void TryUnlockWorldExplorer(PlayerMobile player)
+    {
+        if (player == null || !_definitions.TryGetValue(WorldExplorerAchievementId, out var definition))
+        {
+            return;
+        }
+
+        var state = GetOrCreateProgressState(player, definition);
+
+        if (state.UnlockedAchievements.ContainsKey(definition.Id))
+        {
+            return;
+        }
+
+        var progress = CountUnlockedExplorationVisits(player);
+        UpdateProgressValue(state, definition.Id, progress);
+
+        if (progress >= definition.Threshold)
+        {
+            UnlockAchievement(player, state, definition);
+        }
+    }
+
+    private static int CountUnlockedExplorationVisits(PlayerMobile player)
+    {
+        if (player == null)
+        {
+            return 0;
+        }
+
+        var count = 0;
+
+        foreach (var definition in _definitions.Values)
+        {
+            if (definition.TriggerType != AchievementTriggerType.ExplorationRegionVisit)
+            {
+                continue;
+            }
+
+            if (IsUnlocked(player, definition.Id))
+            {
+                count++;
+            }
+        }
+
+        return count;
+    }
+
+    private static int GetExplorationVisitDefinitionCount()
+    {
+        return _townVisitDefinitions.Length + _dungeonVisitDefinitions.Length + _shrineVisitDefinitions.Length;
+    }
+    /* END ACHIEVEMENT EXPLORATION */
+
     private static AchievementJournalView GetJournalView(AchievementScope scope, AchievementCategory category, bool isLegacy)
     {
         if (isLegacy)
@@ -2280,6 +3237,8 @@ public static class AchievementService
 
         return category switch
         {
+            AchievementCategory.Hunting => AchievementJournalView.CharacterHunting,
+            AchievementCategory.Exploration => AchievementJournalView.CharacterExploration,
             AchievementCategory.Harvesting => AchievementJournalView.CharacterHarvesting,
             AchievementCategory.Economy => AchievementJournalView.CharacterEconomy,
             _ => AchievementJournalView.CharacterSkills
@@ -2418,6 +3377,8 @@ public enum AchievementJournalView
 {
     Overview,
     CharacterSkills,
+    CharacterHunting,
+    CharacterExploration,
     CharacterHarvesting,
     CharacterEconomy,
     Account,
@@ -2441,6 +3402,9 @@ public enum AchievementTriggerType
     ServerFirstSkillMilestone,
     AccountUniqueGrandmasterSkills,
     EconomyGoldEarned,
+    ExplorationRegionVisit,
+    ExplorationRegionVisitAll,
+    TreasureMapCompletionCount,
     CreatureKillCount,
     HarvestResourceCount,
     FishingCatchCount
@@ -2489,6 +3453,7 @@ public sealed class AchievementDefinition
     public AchievementScope Scope { get; set; }
     public bool IsLegacy { get; set; }
     public string LegacyLabel { get; set; }
+    public string TierGroupId { get; set; }
     public DateTime? EarnableFromUtc { get; set; }
     public DateTime? EarnableUntilUtc { get; set; }
     public AchievementHarvestKind HarvestKind { get; set; }
@@ -2496,7 +3461,9 @@ public sealed class AchievementDefinition
     public AchievementEconomyGoldSource EconomyGoldSource { get; set; }
     public CraftResource Resource { get; set; }
     public SkillName Skill { get; set; }
+    public string ExplorationRegionName { get; set; }
     public string CreatureTypeName { get; set; }
+    public string[] CreatureTypeNames { get; set; }
     public int Threshold { get; set; }
     public int SortOrder { get; set; }
 }
@@ -2569,3 +3536,10 @@ public sealed class AchievementServerFirstCandidateRecord
     public DateTime AchievedUtc { get; set; }
     public bool Disqualified { get; set; }
 }
+
+public readonly record struct ExplorationVisitDefinition(
+    string IdSuffix,
+    string RegionName,
+    Point3D Location = default,
+    int Range = 0
+);
