@@ -40,6 +40,14 @@ public static class CustomFeatureFlagBootstrap
         );
 
         CustomFeatureFlagManager.Register(
+            CustomFeatureFlagKeys.HarvestingAutomation,
+            "Harvesting Automation",
+            "Automatically repeats mining, lumberjacking, and fishing on the same harvest node",
+            "Custom Systems",
+            defaultEnabled: true
+        );
+
+        CustomFeatureFlagManager.Register(
             CustomFeatureFlagKeys.TravelCodex,
             "Travel Codex",
             "Non-magery codex travel system",
