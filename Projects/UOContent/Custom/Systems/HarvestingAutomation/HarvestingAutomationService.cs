@@ -9,7 +9,7 @@ public static class HarvestingAutomationService
 {
     private const int WeightBuffer = 15;
     private const string NodeDepletedMessage = "The harvest node is out of resources.";
-    private const string NearWeightLimitMessage = "You stop harvesting before becoming overweight.";
+    private const string NearWeightLimitMessage = "You stop harvesting as you near your weight limit.";
 
     public static bool IsEnabled()
     {
