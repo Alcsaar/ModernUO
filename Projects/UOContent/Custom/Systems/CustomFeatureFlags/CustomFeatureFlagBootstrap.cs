@@ -62,5 +62,13 @@ public static class CustomFeatureFlagBootstrap
             "Special Systems",
             defaultEnabled: false
         );
+
+        CustomFeatureFlagManager.Register(
+            CustomFeatureFlagKeys.RareSpawns,
+            "Rare Spawns",
+            "Controls timed rare item spawns in the world",
+            "Custom Systems",
+            defaultEnabled: true
+        );
     }
 }

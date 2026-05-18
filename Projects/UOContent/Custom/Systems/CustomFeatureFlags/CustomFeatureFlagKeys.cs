@@ -9,4 +9,5 @@ public static class CustomFeatureFlagKeys
     public const string HarvestingAutomation = "harvesting_automation";
     public const string TravelCodex = "travel_codex";
     public const string SupplyStones = "supply_stones";
+    public const string RareSpawns = "rare_spawns";
 }
