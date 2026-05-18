@@ -70,5 +70,13 @@ public static class CustomFeatureFlagBootstrap
             "Custom Systems",
             defaultEnabled: true
         );
+
+        CustomFeatureFlagManager.Register(
+            CustomFeatureFlagKeys.MissionSystem,
+            "Mission System",
+            "Daily Missives and Weekly Contracts",
+            "Custom Systems",
+            defaultEnabled: true
+        );
     }
 }
