@@ -80,70 +80,6 @@ namespace Server.Spells
             1, 1
         };
 
-        private static readonly TravelValidator[] m_Validators =
-        {
-            IsFeluccaT2A,
-            IsKhaldun,
-            IsIlshenar,
-            IsTrammelWind,
-            IsFeluccaWind,
-            IsFeluccaDungeon,
-            IsTrammelSolenHive,
-            IsFeluccaSolenHive,
-            IsCrystalCave,
-            IsDoomGauntlet,
-            IsDoomFerry,
-            IsSafeZone,
-            IsFactionStronghold,
-            IsChampionSpawn,
-            IsTokunoDungeon,
-            IsLampRoom,
-            IsGuardianRoom,
-            IsHeartwood,
-            IsMLDungeon
-        };
-
-        // TODO: Move to configuration
-        private static readonly bool[,] m_Rules =
-        {
-            /* T2A(Fel), Khaldun, Ilshenar, Wind(Tram), Wind(Fel), Dungeons(Fel), Solen(Tram), Solen(Fel), CrystalCave(Malas), Gauntlet(Malas), Gauntlet(Ferry), SafeZone, Stronghold, ChampionSpawn, Dungeons(Tokuno[Malas]), LampRoom(Doom), GuardianRoom(Doom), Heartwood, MLDungeons */
-            /* Recall From */
-            {
-                false, false, true, true, false, false, true, false, false, false, false, true, true, false, true, false,
-                false, false, false
-            },
-            /* Recall To */
-            {
-                false, false, false, false, false, false, false, false, false, false, false, false, false, false, false,
-                false, false, false, false
-            },
-            /* Gate From */
-            {
-                false, false, false, false, false, false, false, false, false, false, false, false, false, false, false,
-                false, false, false, false
-            },
-            /* Gate To */
-            {
-                false, false, false, false, false, false, false, false, false, false, false, false, false, false, false,
-                false, false, false, false
-            },
-            /* Mark In */
-            {
-                false, false, false, false, false, false, false, false, false, false, false, false, false, false, false,
-                false, false, false, false
-            },
-            /* Tele From */
-            {
-                true, true, true, true, true, true, true, true, false, true, true, true, false, true, true, true, true,
-                false, true
-            },
-            /* Tele To */
-            {
-                true, true, true, true, true, true, true, true, false, true, false, false, false, true, true, true, true,
-                false, false
-            }
-        };
-
         private static Mobile m_TravelCaster;
         private static TravelCheckType m_TravelType;
 
@@ -665,8 +601,6 @@ namespace Server.Spells
             m_TravelCaster = caster;
             m_TravelType = type;
 
-            var v = (int)type;
-
             if (caster != null)
             {
                 var destination = Region.Find(loc, map) as BaseRegion;
@@ -679,14 +613,15 @@ namespace Server.Spells
                 }
             }
 
-            for (var i = 0; i < m_Validators.Length; ++i)
+            /*
+             * Travel restriction policy is loaded through TravelRestrictionSystem so shard owners can review
+             * and edit the rules without changing SpellHelper. The validators remain code-owned here to avoid
+             * reflection-based configuration and to keep existing location semantics intact.
+             */
+            if (!TravelRestrictionSystem.CheckTravel(map, loc, type))
             {
-                var isValid = m_Rules[v, i] || !m_Validators[i](map, loc);
-                if (!isValid)
-                {
-                    message = InvalidTravelMessage(type);
-                    return false;
-                }
+                message = InvalidTravelMessage(type);
+                return false;
             }
 
             return true;
@@ -1082,8 +1017,6 @@ namespace Server.Spells
             // TODO: All Healing *spells* go through ArcaneEmpowerment
             target.Heal(amount, from, message);
         }
-
-        private delegate bool TravelValidator(Map map, Point3D loc);
 
         private class SpellDamageTimer : Timer
         {
