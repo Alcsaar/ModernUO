@@ -40,6 +40,7 @@ public static class AchievementService
         AchievementJournalView.CharacterExploration,
         AchievementJournalView.CharacterHarvesting,
         AchievementJournalView.CharacterEconomy,
+        AchievementJournalView.CharacterMissions,
         AchievementJournalView.Account,
         AchievementJournalView.Feats
     };
@@ -129,6 +130,8 @@ public static class AchievementService
     private static readonly int[] _treasureMapGoldTierThresholds = { 25000, 100000, 500000, 1000000, 2500000 };
     private static readonly int[] _dungeonChestGoldTierThresholds = { 10000, 50000, 250000, 500000, 1000000 };
     private static readonly int[] _vendorSaleGoldTierThresholds = { 10000, 50000, 250000, 500000, 1000000 };
+    private static readonly int[] _dailyMissionCompletionTierThresholds = { 10, 50, 100, 250, 500 };
+    private static readonly int[] _weeklyMissionCompletionTierThresholds = { 10, 25, 50, 100, 250 };
     private static readonly int[] _creatureFamilyKillTierThresholds = { 500, 2500, 5000, 10000 };
     private static readonly int[] _creatureSpecificKillTierThresholds = { 100, 500, 1000, 2500 };
     private static readonly int[] _creatureEliteKillTierThresholds = { 25, 100, 250, 500 };
@@ -385,6 +388,11 @@ public static class AchievementService
         );
     }
     /* END ACHIEVEMENT FEATURE FLAG */
+
+    public static bool IsMissionTrackingEnabled()
+    {
+        return AchievementSettings.EnableMissionTracking;
+    }
 
     public static bool AllowStaffServerFirstsForTesting
     {
@@ -656,6 +664,42 @@ public static class AchievementService
             }
         }
     }
+
+    /* BEGIN ACHIEVEMENT MISSION TRACKING: mission-system hooks record daily and weekly completion counts separately */
+    public static void RecordMissionCompleted(Mobile from, AchievementMissionCadence cadence)
+    {
+        if (
+            from is not PlayerMobile player ||
+            !ShouldTrackPlayer(player) ||
+            !IsSystemEnabled() ||
+            !IsMissionTrackingEnabled()
+        )
+        {
+            return;
+        }
+
+        foreach (var definition in _definitions.Values)
+        {
+            if (
+                definition.TriggerType != AchievementTriggerType.MissionCompletionCount ||
+                definition.MissionCadence != cadence ||
+                !IsAchievementEarnable(definition)
+            )
+            {
+                continue;
+            }
+
+            var state = GetOrCreateProgressState(player, definition);
+            var progress = GetProgressValue(state, definition.Id) + 1;
+            UpdateProgressValue(state, definition.Id, progress);
+
+            if (progress >= definition.Threshold)
+            {
+                UnlockAchievement(player, state, definition);
+            }
+        }
+    }
+    /* END ACHIEVEMENT MISSION TRACKING */
     /* END ACHIEVEMENT SYSTEM CUSTOMIZATION */
 
     public static void ResetPlayer(PlayerMobile player)
@@ -1004,6 +1048,7 @@ public static class AchievementService
             AchievementJournalView.CharacterExploration => "Exploration",
             AchievementJournalView.CharacterHarvesting => "Harvesting",
             AchievementJournalView.CharacterEconomy => "Economy",
+            AchievementJournalView.CharacterMissions => "Missions",
             AchievementJournalView.Account => "Account",
             AchievementJournalView.Legacy => "Legacy",
             AchievementJournalView.Feats => "Feats",
@@ -1021,6 +1066,7 @@ public static class AchievementService
             AchievementCategory.Crafting => "Crafting",
             AchievementCategory.Exploration => "Exploration",
             AchievementCategory.Economy => "Economy",
+            AchievementCategory.Missions => "Missions",
             _ => "General"
         };
     }
@@ -1745,6 +1791,7 @@ public static class AchievementService
         RegisterHarvestDefinitions();
         RegisterFishingDefinitions();
         RegisterEconomyDefinitions();
+        RegisterMissionDefinitions();
     }
 
     /* BEGIN ACHIEVEMENT EXPLORATION: first-visit and treasure-map completion definitions */
@@ -2230,6 +2277,63 @@ public static class AchievementService
     }
     /* END ACHIEVEMENT ECONOMY */
 
+    /* BEGIN ACHIEVEMENT MISSION TRACKING: separate tier definitions for daily missives and weekly contracts */
+    private static void RegisterMissionDefinitions()
+    {
+        var sortOrder = 1300;
+
+        RegisterMissionCompletionDefinitions(
+            AchievementMissionCadence.Daily,
+            "daily_missions_completed",
+            "Daily Discipline",
+            "Complete {0:N0} daily mission{1}.",
+            _dailyMissionCompletionTierThresholds,
+            ref sortOrder
+        );
+
+        RegisterMissionCompletionDefinitions(
+            AchievementMissionCadence.Weekly,
+            "weekly_missions_completed",
+            "Weekly Contracted",
+            "Complete {0:N0} weekly mission{1}.",
+            _weeklyMissionCompletionTierThresholds,
+            ref sortOrder
+        );
+    }
+
+    private static void RegisterMissionCompletionDefinitions(
+        AchievementMissionCadence cadence,
+        string tierGroupId,
+        string namePrefix,
+        string descriptionFormat,
+        IReadOnlyList<int> thresholds,
+        ref int sortOrder
+    )
+    {
+        for (var i = 0; i < thresholds.Count; i++)
+        {
+            var threshold = thresholds[i];
+            var suffix = threshold == 1 ? string.Empty : "s";
+
+            RegisterDefinition(
+                new AchievementDefinition
+                {
+                    Id = $"{tierGroupId}_{threshold}",
+                    Name = $"{namePrefix} {RomanizeTier(i + 1)}",
+                    Description = string.Format(descriptionFormat, threshold, suffix),
+                    Category = AchievementCategory.Missions,
+                    TriggerType = AchievementTriggerType.MissionCompletionCount,
+                    Scope = AchievementScope.Character,
+                    TierGroupId = tierGroupId,
+                    MissionCadence = cadence,
+                    Threshold = threshold,
+                    SortOrder = sortOrder++
+                }
+            );
+        }
+    }
+    /* END ACHIEVEMENT MISSION TRACKING */
+
     private static void RegisterDefinition(AchievementDefinition definition)
     {
         if (definition == null || string.IsNullOrWhiteSpace(definition.Id))
@@ -2323,6 +2427,7 @@ public static class AchievementService
             AchievementTriggerType.CreatureKillCount => GetProgressValue(state, definition.Id),
             AchievementTriggerType.HarvestResourceCount => GetProgressValue(state, definition.Id),
             AchievementTriggerType.FishingCatchCount => GetProgressValue(state, definition.Id),
+            AchievementTriggerType.MissionCompletionCount => GetProgressValue(state, definition.Id),
             _ => 0
         };
 
@@ -2982,6 +3087,11 @@ public static class AchievementService
             return false;
         }
 
+        if (definition.TriggerType == AchievementTriggerType.MissionCompletionCount && !IsMissionTrackingEnabled())
+        {
+            return false;
+        }
+
         return view switch
         {
             AchievementJournalView.Overview => true,
@@ -3006,6 +3116,11 @@ public static class AchievementService
                 definition.Scope == AchievementScope.Character &&
                 definition.Category == AchievementCategory.Economy &&
                 !definition.IsLegacy,
+            AchievementJournalView.CharacterMissions =>
+                definition.Scope == AchievementScope.Character &&
+                definition.Category == AchievementCategory.Missions &&
+                !definition.IsLegacy &&
+                IsMissionTrackingEnabled(),
             AchievementJournalView.Account => definition.Scope == AchievementScope.Account && !definition.IsLegacy,
             AchievementJournalView.Legacy => definition.IsLegacy,
             AchievementJournalView.Feats => definition.IsLegacy ||
@@ -3241,6 +3356,7 @@ public static class AchievementService
             AchievementCategory.Exploration => AchievementJournalView.CharacterExploration,
             AchievementCategory.Harvesting => AchievementJournalView.CharacterHarvesting,
             AchievementCategory.Economy => AchievementJournalView.CharacterEconomy,
+            AchievementCategory.Missions => AchievementJournalView.CharacterMissions,
             _ => AchievementJournalView.CharacterSkills
         };
     }
@@ -3264,7 +3380,12 @@ public static class AchievementService
 
     private static bool IsAchievementEarnable(AchievementDefinition definition)
     {
-        return definition is { IsLegacy: false };
+        if (definition is not { IsLegacy: false })
+        {
+            return false;
+        }
+
+        return definition.TriggerType != AchievementTriggerType.MissionCompletionCount || IsMissionTrackingEnabled();
     }
 
     private static AchievementFishingCatchKind GetFishingCatchKind(Item item)
@@ -3381,6 +3502,7 @@ public enum AchievementJournalView
     CharacterExploration,
     CharacterHarvesting,
     CharacterEconomy,
+    CharacterMissions,
     Account,
     Legacy,
     Feats
@@ -3393,7 +3515,8 @@ public enum AchievementCategory
     Harvesting,
     Crafting,
     Exploration,
-    Economy
+    Economy,
+    Missions
 }
 
 public enum AchievementTriggerType
@@ -3407,7 +3530,14 @@ public enum AchievementTriggerType
     TreasureMapCompletionCount,
     CreatureKillCount,
     HarvestResourceCount,
-    FishingCatchCount
+    FishingCatchCount,
+    MissionCompletionCount
+}
+
+public enum AchievementMissionCadence
+{
+    Daily,
+    Weekly
 }
 
 public enum AchievementEconomyGoldSource
@@ -3459,6 +3589,7 @@ public sealed class AchievementDefinition
     public AchievementHarvestKind HarvestKind { get; set; }
     public AchievementFishingCatchKind FishingCatchKind { get; set; }
     public AchievementEconomyGoldSource EconomyGoldSource { get; set; }
+    public AchievementMissionCadence MissionCadence { get; set; }
     public CraftResource Resource { get; set; }
     public SkillName Skill { get; set; }
     public string ExplorationRegionName { get; set; }

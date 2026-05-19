@@ -577,7 +577,8 @@ public sealed class AchievementGump : DynamicGump
                 AchievementJournalView.CharacterHunting or
                 AchievementJournalView.CharacterExploration or
                 AchievementJournalView.CharacterHarvesting or
-                AchievementJournalView.CharacterEconomy =>
+                AchievementJournalView.CharacterEconomy or
+                AchievementJournalView.CharacterMissions =>
                 AchievementJournalRailSection.Character,
             AchievementJournalView.Account => AchievementJournalRailSection.Account,
             AchievementJournalView.Feats or AchievementJournalView.Legacy => AchievementJournalRailSection.Feats,

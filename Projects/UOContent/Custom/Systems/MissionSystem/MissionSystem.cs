@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using Server.Custom.Systems.AchievementSystem;
 using Server.Custom.Systems.CustomFeatureFlags;
 using Server.Engines.Events;
 using Server.Logging;
@@ -260,8 +261,8 @@ public static class MissionSystemService
         }
 
         var applied = 0;
-        applied += AddProgress(profile.DailyMissives, amount);
-        applied += AddProgress(profile.WeeklyContracts, amount);
+        applied += AddProgress(player, profile.DailyMissives, amount);
+        applied += AddProgress(player, profile.WeeklyContracts, amount);
 
         return applied;
     }
@@ -450,6 +451,7 @@ public static class MissionSystemService
             if (instance.CurrentProgress >= instance.RequiredProgress)
             {
                 instance.Completed = true;
+                AchievementService.RecordMissionCompleted(credit.Player, GetAchievementMissionCadence(instance.Cadence));
                 credit.Player.SendMessage(0x35, $"{definition.Title} is complete. Return to a mission board to claim your reward.");
             }
             else
@@ -459,7 +461,7 @@ public static class MissionSystemService
         }
     }
 
-    private static int AddProgress(List<PlayerMissionInstance> instances, int amount)
+    private static int AddProgress(PlayerMobile player, List<PlayerMissionInstance> instances, int amount)
     {
         var applied = 0;
 
@@ -478,11 +480,19 @@ public static class MissionSystemService
             if (instance.CurrentProgress >= instance.RequiredProgress)
             {
                 instance.Completed = true;
+                AchievementService.RecordMissionCompleted(player, GetAchievementMissionCadence(instance.Cadence));
             }
         }
 
         return applied;
     }
+
+    /* BEGIN MISSION ACHIEVEMENT BRIDGE: translate mission cadence into achievement-owned values */
+    private static AchievementMissionCadence GetAchievementMissionCadence(MissionCadence cadence)
+    {
+        return cadence == MissionCadence.DailyMissive ? AchievementMissionCadence.Daily : AchievementMissionCadence.Weekly;
+    }
+    /* END MISSION ACHIEVEMENT BRIDGE */
 
     private static PlayerMissionInstance FindInstance(PlayerMobile player, string instanceId, out PlayerMissionProfile profile)
     {
