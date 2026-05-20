@@ -10,4 +10,5 @@ public static class CustomFeatureFlagKeys
     public const string TravelCodex = "travel_codex";
     public const string SupplyStones = "supply_stones";
     public const string RareSpawns = "rare_spawns";
+    public const string MissionSystem = "mission_system";
 }

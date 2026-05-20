@@ -19,6 +19,10 @@ public static class RareSpawnCommands
         CommandSystem.Register("rsstatus", AccessLevel.GameMaster, RareSpawnStatus_OnCommand);
         CommandSystem.Register("RareSpawnToggle", AccessLevel.GameMaster, RareSpawnToggle_OnCommand);
         CommandSystem.Register("rstoggle", AccessLevel.GameMaster, RareSpawnToggle_OnCommand);
+        CommandSystem.Register("RareSpawnExport", AccessLevel.Administrator, RareSpawnExport_OnCommand);
+        CommandSystem.Register("rsexport", AccessLevel.Administrator, RareSpawnExport_OnCommand);
+        CommandSystem.Register("RareSpawnImport", AccessLevel.Administrator, RareSpawnImport_OnCommand);
+        CommandSystem.Register("rsimport", AccessLevel.Administrator, RareSpawnImport_OnCommand);
     }
 
     [Usage("RareSpawnAdd <itemType> <profile> <display name>")]
@@ -155,6 +159,31 @@ public static class RareSpawnCommands
             point.Enabled = !point.Enabled;
             from.SendMessage(0x35, $"Rare spawn point enabled: {point.Enabled}");
         });
+    }
+
+    [Usage("RareSpawnExport [path]")]
+    [Aliases("rsexport")]
+    [Description("Exports rare spawn point definitions for fresh-server restore.")]
+    private static void RareSpawnExport_OnCommand(CommandEventArgs e)
+    {
+        var path = e.Length > 0 ? e.GetString(0) : null;
+        var count = RareSpawnExport.Export(path);
+        e.Mobile.SendMessage(0x35, $"Exported {count:N0} rare spawn points to {RareSpawnExport.ResolveDisplayPath(path)}.");
+    }
+
+    [Usage("RareSpawnImport [path]")]
+    [Aliases("rsimport")]
+    [Description("Imports rare spawn point definitions from export JSON.")]
+    private static void RareSpawnImport_OnCommand(CommandEventArgs e)
+    {
+        var path = e.Length > 0 ? e.GetString(0) : null;
+        if (!RareSpawnExport.Import(path, out var created, out var updated, out var failureReason))
+        {
+            e.Mobile.SendMessage(0x22, failureReason ?? "Rare spawn import failed.");
+            return;
+        }
+
+        e.Mobile.SendMessage(0x35, $"Imported rare spawn points. Created: {created:N0}. Updated: {updated:N0}.");
     }
 
     private sealed class RareSpawnPointTarget : Target

@@ -1,5 +1,30 @@
 # Unreleased Changes
 
+## Launch Systems, Missions, Travel, and Rare Spawns
+
+### Player-Facing
+- Added mission board support with generated daily/weekly style mission content, reward handling, and player progress/status views.
+- Added travel restriction handling so blocked recall, gate, and related travel flows can be managed through the custom system.
+- Added map season override controls for staff-run launch or seasonal presentation changes.
+- Expanded rare spawn support with additional collectible decoration item classes.
+
+### Dev-Facing
+- Added mission system services, models, objectives, rewards, board gumps, persistence, and export support.
+- Added launch audit commands and gump tooling for reviewing launch-readiness state.
+- Added rare spawn import/export commands for spawn point backup and fresh-server restore workflows.
+- Added TravelCodex location export support.
+- Expanded achievement settings and achievement UI/service support for the new launch and mission workflows.
+
+### Config / Admin
+- Added admin command surfaces for mission, launch audit, map season override, rare spawn import/export, and travel restriction workflows.
+- Left `Distribution/Configuration/travelrestrictions.json` untracked so local travel restriction configuration does not get committed.
+
+### Verification
+- `dotnet build Projects\UOContent\UOContent.csproj` passed with 0 warnings and 0 errors.
+
+### Risks / Notes
+- This batch touches several custom systems plus travel spell helper behavior, so the validation build is the minimum gate before pushing `develop`.
+
 ## Harvesting Automation
 
 ### Player-Facing

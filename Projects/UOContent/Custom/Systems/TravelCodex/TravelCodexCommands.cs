@@ -21,6 +21,10 @@ public static class TravelCodexCommands
         CommandSystem.Register("tra", AccessLevel.GameMaster, TravelRemoveAll_OnCommand);
         CommandSystem.Register("TravelGiveCodex", AccessLevel.GameMaster, TravelGiveCodex_OnCommand);
         CommandSystem.Register("tgc", AccessLevel.GameMaster, TravelGiveCodex_OnCommand);
+        CommandSystem.Register("TravelExportLocations", AccessLevel.Administrator, TravelExportLocations_OnCommand);
+        CommandSystem.Register("texport", AccessLevel.Administrator, TravelExportLocations_OnCommand);
+        CommandSystem.Register("TravelImportLocations", AccessLevel.Administrator, TravelImportLocations_OnCommand);
+        CommandSystem.Register("timport", AccessLevel.Administrator, TravelImportLocations_OnCommand);
     }
 
     [Usage("TravelAddStone <destinationKey> <category> <discoverRange> <display name>")]
@@ -316,5 +320,30 @@ public static class TravelCodexCommands
             mobile.Backpack.DropItem(new TravelCodex());
             from.SendMessage(0x35, $"A Travel Codex has been placed in {mobile.Name}'s backpack.");
         }
+    }
+
+    [Usage("TravelExportLocations [path]")]
+    [Aliases("texport")]
+    [Description("Exports Travel Codex discovery stone locations for fresh-server restore.")]
+    private static void TravelExportLocations_OnCommand(CommandEventArgs e)
+    {
+        var path = e.Length > 0 ? e.GetString(0) : null;
+        var count = TravelCodexLocationExport.Export(path);
+        e.Mobile.SendMessage(0x35, $"Exported {count:N0} travel locations to {TravelCodexLocationExport.ResolveDisplayPath(path)}.");
+    }
+
+    [Usage("TravelImportLocations [path]")]
+    [Aliases("timport")]
+    [Description("Imports Travel Codex discovery stone locations from export JSON.")]
+    private static void TravelImportLocations_OnCommand(CommandEventArgs e)
+    {
+        var path = e.Length > 0 ? e.GetString(0) : null;
+        if (!TravelCodexLocationExport.Import(path, out var created, out var updated, out var failureReason))
+        {
+            e.Mobile.SendMessage(0x22, failureReason ?? "Travel location import failed.");
+            return;
+        }
+
+        e.Mobile.SendMessage(0x35, $"Imported travel locations. Created: {created:N0}. Updated: {updated:N0}.");
     }
 }

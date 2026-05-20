@@ -9,13 +9,13 @@ public sealed class AchievementPersistence : GenericPersistence
         _instance ??= new AchievementPersistence();
     }
 
-    private AchievementPersistence() : base("AchievementSystem", 3)
+    private AchievementPersistence() : base("AchievementSystem", 4)
     {
     }
 
     public override void Serialize(IGenericWriter writer)
     {
-        writer.WriteEncodedInt(3); // version
+        writer.WriteEncodedInt(4); // version
         AchievementService.SerializePersistence(writer);
     }
 
@@ -41,6 +41,7 @@ public sealed class AchievementPersistence : GenericPersistence
                     break;
                 }
             case 3:
+            case 4:
                 {
                     AchievementService.DeserializePersistence(reader, version);
                     break;
