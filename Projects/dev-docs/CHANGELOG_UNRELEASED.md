@@ -1,5 +1,28 @@
 # Unreleased Changes
 
+## Better Go Command
+
+### Player-Facing
+- Replaced `[Go` with a custom staff destination gump that opens directly from the command.
+- Added map filter buttons so staff can browse destinations on other facets without teleporting there first.
+- Expanded Trammel/Felucca town destinations with direct stops for banks first, plus docks, stables, mage shops, and other useful town landmarks.
+- Kept direct `[Go` shortcuts for target, serial, map, region, coordinate, and sextant travel.
+
+### Dev-Facing
+- Added `BetterGoCommand` under `UOContent/Custom/Systems/BetterGoCommand/`.
+- Preserved ModernUO's stock Go handler as `[GoLegacy]` instead of replacing the old implementation in place.
+- Reuses legacy Go location data for non-town categories while substituting enhanced town data for Britannia towns.
+
+### Config / Admin
+- Staff commands: `[Go`, `[BetterGo`, `[BGo`, and fallback `[GoLegacy]`.
+- Access level remains `Counselor`.
+
+### Verification
+- `dotnet build` passed with 0 warnings and 0 errors.
+
+### Risks / Notes
+- Town point coordinates are curated static staff destinations and may need in-game adjustment if a shard's decoration or service layout differs from stock assumptions.
+
 ## Launch Systems, Missions, Travel, and Rare Spawns
 
 ### Player-Facing
