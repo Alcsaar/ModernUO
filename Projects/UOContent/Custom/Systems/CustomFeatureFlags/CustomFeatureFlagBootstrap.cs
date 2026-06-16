@@ -78,5 +78,13 @@ public static class CustomFeatureFlagBootstrap
             "Custom Systems",
             defaultEnabled: true
         );
+
+        CustomFeatureFlagManager.Register(
+            CustomFeatureFlagKeys.AIIntegration,
+            "AI Integration",
+            "Staff-controlled Ollama AI integration for custom shard tools",
+            "Custom Systems",
+            defaultEnabled: false
+        );
     }
 }
