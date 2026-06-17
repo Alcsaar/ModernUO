@@ -58,6 +58,7 @@ public static class TownChatterService
     private static readonly TimeSpan PlayerLiveCommentCooldown = TimeSpan.FromMinutes(2.0);
     private static readonly TimeSpan NpcLiveCommentCooldown = TimeSpan.FromMinutes(3.0);
     private static readonly TimeSpan RecentFactMaxAge = TimeSpan.FromHours(6.0);
+    private static readonly TimeSpan ServerFirstAnnouncementMaxAge = TimeSpan.FromDays(3.0);
     private static readonly TimeSpan ServerFirstFactSyncInterval = TimeSpan.FromMinutes(1.0);
 
     private static readonly Dictionary<string, TownChatterCache> _caches =
@@ -69,6 +70,7 @@ public static class TownChatterService
     private static bool _autoTopUpRunning;
     private static bool _movementHooked;
     private static DateTime _nextServerFirstFactSyncUtc;
+    private static int _nextServerFirstAnnouncementIndex;
     private static readonly Dictionary<string, Region> _townRegions = new(StringComparer.OrdinalIgnoreCase);
 
     private static readonly Dictionary<string, string> _defaultThemes =
@@ -404,6 +406,8 @@ public static class TownChatterService
             Location = null,
             CreatedUtc = DateTime.UtcNow
         });
+
+        ForceBeginServerFirstTownCrierAnnouncements();
     }
 
     public static string GenerateLatestFactComment()
@@ -423,13 +427,77 @@ public static class TownChatterService
         return string.IsNullOrWhiteSpace(line) ? "The latest fact could not be rendered." : line;
     }
 
+    public static bool TryGetServerFirstAnnouncement(out string[] lines)
+    {
+        lines = null;
+
+        RefreshServerFirstFactsFromAchievements();
+        PruneOldFacts();
+        TrimTransientFacts();
+
+        var now = DateTime.UtcNow;
+        var eligibleCount = 0;
+
+        for (var i = 0; i < _recentFacts.Count; i++)
+        {
+            if (IsEligibleServerFirstAnnouncement(_recentFacts[i], now))
+            {
+                eligibleCount++;
+            }
+        }
+
+        if (eligibleCount == 0)
+        {
+            _nextServerFirstAnnouncementIndex = 0;
+            return false;
+        }
+
+        if (_nextServerFirstAnnouncementIndex >= eligibleCount)
+        {
+            _nextServerFirstAnnouncementIndex = 0;
+        }
+
+        var targetIndex = _nextServerFirstAnnouncementIndex++;
+        var currentIndex = 0;
+
+        for (var i = 0; i < _recentFacts.Count; i++)
+        {
+            var fact = _recentFacts[i];
+
+            if (!IsEligibleServerFirstAnnouncement(fact, now))
+            {
+                continue;
+            }
+
+            if (currentIndex++ != targetIndex)
+            {
+                continue;
+            }
+
+            lines = BuildServerFirstAnnouncementLines(fact);
+            return lines?.Length > 0;
+        }
+
+        _nextServerFirstAnnouncementIndex = 0;
+        return false;
+    }
+
+    public static bool HasActiveServerFirstAnnouncements()
+    {
+        RefreshServerFirstFactsFromAchievements();
+        PruneOldFacts();
+        TrimTransientFacts();
+
+        return HasEligibleServerFirstAnnouncement(DateTime.UtcNow);
+    }
+
     public static void SerializePersistence(IGenericWriter writer)
     {
         RefreshServerFirstFactsFromAchievements(force: true);
         PruneOldFacts();
         TrimTransientFacts();
 
-        writer.WriteEncodedInt(3); // data version
+        writer.WriteEncodedInt(4); // data version
         writer.WriteEncodedInt(_caches.Count);
 
         foreach (var entry in _caches)
@@ -459,6 +527,8 @@ public static class TownChatterService
             writer.Write(fact.Location);
             writer.Write(fact.CreatedUtc);
         }
+
+        writer.WriteEncodedInt(_nextServerFirstAnnouncementIndex);
     }
 
     public static void DeserializePersistence(IGenericReader reader, int version)
@@ -525,6 +595,13 @@ public static class TownChatterService
 
         PruneOldFacts();
         TrimTransientFacts();
+
+        _nextServerFirstAnnouncementIndex = dataVersion >= 4 ? Math.Max(0, reader.ReadEncodedInt()) : 0;
+
+        if (HasEligibleServerFirstAnnouncement(DateTime.UtcNow))
+        {
+            ForceBeginServerFirstTownCrierAnnouncements();
+        }
     }
 
     public static void RefreshServerFirstFactsFromAchievements(bool force = false)
@@ -572,6 +649,11 @@ public static class TownChatterService
         }
 
         _recentFacts.Sort(static (a, b) => a.CreatedUtc.CompareTo(b.CreatedUtc));
+
+        if (HasEligibleServerFirstAnnouncement(now))
+        {
+            ForceBeginServerFirstTownCrierAnnouncements();
+        }
     }
 
     public static bool TryGetCache(string town, out TownChatterCache cache)
@@ -1373,6 +1455,69 @@ public static class TownChatterService
             4 => $"I heard {fact.PlayerName} claimed the first Grandmaster {fact.Detail} honor.",
             5 => $"Remember the name {fact.PlayerName}: first Grandmaster of {fact.Detail}.",
             _ => $"Word is {fact.PlayerName} led the shard to Grandmaster {fact.Detail}."
+        };
+    }
+
+    private static bool IsEligibleServerFirstAnnouncement(WorldFact fact, DateTime now)
+    {
+        return fact?.Kind == WorldFactKind.ServerFirstAchievement &&
+            !string.IsNullOrWhiteSpace(fact.PlayerName) &&
+            !string.IsNullOrWhiteSpace(fact.Detail) &&
+            fact.CreatedUtc >= now - ServerFirstAnnouncementMaxAge;
+    }
+
+    private static bool HasEligibleServerFirstAnnouncement(DateTime now)
+    {
+        for (var i = 0; i < _recentFacts.Count; i++)
+        {
+            if (IsEligibleServerFirstAnnouncement(_recentFacts[i], now))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static void ForceBeginServerFirstTownCrierAnnouncements()
+    {
+        var instances = TownCrier.Instances;
+
+        for (var i = 0; i < instances.Count; i++)
+        {
+            instances[i].ForceBeginAutoShout();
+        }
+    }
+
+    private static string[] BuildServerFirstAnnouncementLines(WorldFact fact)
+    {
+        if (fact == null || string.IsNullOrWhiteSpace(fact.PlayerName) || string.IsNullOrWhiteSpace(fact.Detail))
+        {
+            return null;
+        }
+
+        return Utility.Random(4) switch
+        {
+            0 => new[]
+            {
+                $"Let it be known: {fact.PlayerName} is the first to reach Grandmaster {fact.Detail}!",
+                "Their name shall be remembered among the records of Britannia!"
+            },
+            1 => new[]
+            {
+                $"Hear ye! {fact.PlayerName} has claimed a place in the realm's chronicles!",
+                $"None reached Grandmaster {fact.Detail} before them!"
+            },
+            2 => new[]
+            {
+                $"News from the realm: {fact.PlayerName} stands first among Grandmaster {fact.Detail}s!",
+                "Raise a cheer for this new record!"
+            },
+            _ => new[]
+            {
+                $"By official record, {fact.PlayerName} was first to master {fact.Detail}!",
+                "Let the towns remember the first of their craft!"
+            }
         };
     }
 
