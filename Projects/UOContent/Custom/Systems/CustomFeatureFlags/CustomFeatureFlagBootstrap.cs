@@ -84,7 +84,7 @@ public static class CustomFeatureFlagBootstrap
             "AI Integration",
             "Staff-controlled Ollama AI integration for custom shard tools",
             "Custom Systems",
-            defaultEnabled: false
+            defaultEnabled: true
         );
     }
 }

@@ -941,6 +941,9 @@ public static class AchievementService
         DisqualifyServerFirstCandidate(removedRecord);
         ClearServerFirstWinnerUnlock(removedRecord);
         TryPromoteNextServerFirst(achievementId, out promotedRecord);
+        /* BEGIN CUSTOM VIRTUAL ECOLOGY: keep permanent server-first rumor facts aligned with active achievement claims */
+        Server.Custom.Systems.VirtualEcology.TownChatterService.RefreshServerFirstFactsFromAchievements(force: true);
+        /* END CUSTOM VIRTUAL ECOLOGY */
         return true;
     }
 
@@ -1015,6 +1018,9 @@ public static class AchievementService
 
         _pendingNotifications.Clear();
         _activeNotifications.Clear();
+        /* BEGIN CUSTOM VIRTUAL ECOLOGY: remove cleared testing server-first claims from permanent rumor facts */
+        Server.Custom.Systems.VirtualEcology.TownChatterService.RefreshServerFirstFactsFromAchievements(force: true);
+        /* END CUSTOM VIRTUAL ECOLOGY */
     }
     /* END ACHIEVEMENT SERVER FIRSTS */
 
@@ -2598,6 +2604,13 @@ public static class AchievementService
 
             _serverFirsts[achievementId] = promotedRecord;
             UnlockServerFirstRecord(promotedRecord, definition);
+            /* BEGIN CUSTOM VIRTUAL ECOLOGY: record real shard-first achievements for live NPC rumors */
+            Server.Custom.Systems.VirtualEcology.TownChatterService.RecordServerFirstAchievement(
+                promotedRecord.AchievementId,
+                promotedRecord.PlayerName,
+                promotedRecord.SkillDisplayName
+            );
+            /* END CUSTOM VIRTUAL ECOLOGY */
             AnnounceServerFirst(promotedRecord);
             return true;
         }

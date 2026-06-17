@@ -18,6 +18,7 @@ public static class AIIntegrationService
     public static void Configure()
     {
         AIIntegrationSettings.Configure();
+        CustomFeatureFlagManager.Configure();
         RegisterFeatureFlag();
         AIIntegrationCommands.Configure();
     }
@@ -29,6 +30,9 @@ public static class AIIntegrationService
 
     public static ValueTask<string> GenerateChatterAsync(string prompt, string model = null) =>
         GenerateAsync(prompt, AIRequestProfile.Chatter, model);
+
+    public static ValueTask<string> GenerateChatterPoolAsync(string prompt, string model = null) =>
+        GenerateAsync(prompt, AIRequestProfile.ChatterPool, model);
 
     public static async ValueTask<string> GenerateAsync(
         string prompt,
@@ -161,7 +165,7 @@ public static class AIIntegrationService
             "AI Integration",
             "Enables staff-controlled Ollama AI integration for custom shard tools.",
             "Custom Systems",
-            false
+            true
         );
     }
 
@@ -182,6 +186,18 @@ public static class AIIntegrationService
             "Answer in-character in one or two short sentences. " +
             "Do not mention AI, models, servers, modern technology, or game mechanics unless the player asks a practical gameplay question.\n\n" +
             $"Player or world context: {prompt}",
+        AIRequestProfile.ChatterPool =>
+            "You write ambient town chatter for an Ultima Online Renaissance shard. " +
+            "Return only distinct in-character NPC dialogue lines, one per line. " +
+            "Do not include introductions, explanations, numbering, bullets, speaker names, job titles, labels, personal names, or quote marks. " +
+            "Keep each line under 110 characters. " +
+            "Avoid modern terms, AI references, explicit mechanics, and out-of-era content. " +
+            "UOR craft rules: miners dig ore, ore is smelted into ingots, anvils are for smithing items, " +
+            "lumberjacks cut logs, and boards are made from logs. " +
+            "Do not invent impossible production steps. " +
+            "Do not imply an available quest, objective, reward, missing person, repair job, delivery, or task. " +
+            "The lines should sound like ambient gossip only, not instructions to the player.\n\n" +
+            prompt,
         _ =>
             "You are a staff-side assistant for a custom Ultima Online Renaissance shard. " +
             "Be concise, practical, and useful for shard administration or content drafting.\n\n" +

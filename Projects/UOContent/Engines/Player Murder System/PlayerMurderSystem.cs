@@ -298,6 +298,9 @@ public class PlayerMurderSystem : GenericPersistence
 
         var wasMurderer = killer.Murderer;
         OnPlayerMurder(pk);
+        /* BEGIN CUSTOM VIRTUAL ECOLOGY: only named murder reports may enter NPC rumor facts */
+        Server.Custom.Systems.VirtualEcology.TownChatterService.RecordReportedMurder(reporter, killer);
+        /* END CUSTOM VIRTUAL ECOLOGY */
 
         Titles.SetKarma(pk, pk.Kills * (Core.AOS ? -2000 : -1000), true);
 

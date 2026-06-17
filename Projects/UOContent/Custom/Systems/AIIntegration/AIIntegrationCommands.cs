@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using Server.Commands;
+using Server.Custom.Systems.CustomFeatureFlags;
 
 namespace Server.Custom.Systems.AIIntegration;
 
@@ -18,8 +19,18 @@ public static class AIIntegrationCommands
     private static void AIStatus_OnCommand(CommandEventArgs e)
     {
         var from = e.Mobile;
+        var status = CustomFeatureFlagManager.GetStatus(CustomFeatureFlagKeys.AIIntegration);
 
         from.SendMessage($"AI Integration: {(AIIntegrationService.IsEnabled ? "enabled" : "disabled")}");
+        from.SendMessage($"Custom flag config: {CustomFeatureFlagManager.ConfigPath}");
+
+        if (status != null)
+        {
+            from.SendMessage(
+                $"Flag stored/effective/default: {(status.StoredEnabled ? "ON" : "OFF")} / {(status.EffectiveEnabled ? "ON" : "OFF")} / {(status.DefaultEnabled ? "ON" : "OFF")}"
+            );
+        }
+
         from.SendMessage($"Endpoint: {AIIntegrationSettings.OllamaEndpoint}");
         from.SendMessage($"Staff model: {AIIntegrationSettings.StaffModel}");
         from.SendMessage($"Chatter model: {AIIntegrationSettings.ChatterModel}");

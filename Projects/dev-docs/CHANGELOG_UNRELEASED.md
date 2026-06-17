@@ -1,5 +1,32 @@
 # Unreleased Changes
 
+## AI Integration and Virtual Ecology
+
+### Player-Facing
+- Added Virtual Ecology town chatter that lets town NPCs deliver ambient lines, dynamic reactions, and real server-fact rumors.
+- NPC chatter can reference real player deaths, reported murderers, monster killer types, and server-first Grandmaster achievements.
+- Death rumors are throttled per character so players cannot flood the fact buffer by repeatedly dying.
+- Server-first achievement rumors remain permanent but resync from the achievement system so reset or promoted claims stay truthful.
+
+### Dev-Facing
+- Split reusable backend AI access into `UOContent/Custom/Systems/AIIntegration/`.
+- Moved town-life gameplay behavior into `UOContent/Custom/Systems/VirtualEcology/`.
+- Renamed town chatter classes to `TownChatterService`, `TownChatterCommands`, `TownChatterGump`, `TownChatterPersistence`, and `WorldFact`.
+- Added a chatter-pool AI request profile for generating cached ambient lines while keeping factual server-event chatter template-based.
+- Hooked achievement server-first changes and reported murder reports into Virtual Ecology fact tracking.
+
+### Config / Admin
+- AI backend feature flag: `ai_integration`
+- Town chatter commands include `[VirtualEcologyAdmin`, `[VEAdmin`, `[VEGump`, `[TownChatterAdmin`, `[TCGump`, `[TCFacts`, and `[TCFactLine`.
+- Town chatter persistence key is `TownChatter`.
+
+### Verification
+- `dotnet build` passed with 0 warnings and 0 errors.
+
+### Risks / Notes
+- Virtual Ecology currently depends on the AI backend only for generated ambient and dynamic chatter; factual server-event chatter uses local templates.
+- The persistence key was intentionally renamed from the earlier AI town chatter name because this branch is not live.
+
 ## Better Go Command
 
 ### Player-Facing

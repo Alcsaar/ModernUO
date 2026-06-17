@@ -14,17 +14,21 @@ public sealed class AIIntegrationConfig
     public int MaxPromptLength { get; set; } = 500;
     public int StaffMaxResponseLength { get; set; } = 1600;
     public int ChatterMaxResponseLength { get; set; } = 500;
+    public int ChatterPoolMaxResponseLength { get; set; } = 2000;
     public int StaffMaxGeneratedTokens { get; set; } = 180;
     public int ChatterMaxGeneratedTokens { get; set; } = 60;
+    public int ChatterPoolMaxGeneratedTokens { get; set; } = 240;
     public double StaffTemperature { get; set; } = 0.45;
     public double ChatterTemperature { get; set; } = 0.75;
+    public double ChatterPoolTemperature { get; set; } = 0.8;
     public bool AllowPlayerUse { get; set; }
 }
 
 public enum AIRequestProfile
 {
     Staff,
-    Chatter
+    Chatter,
+    ChatterPool
 }
 
 public static class AIIntegrationSettings
@@ -53,37 +57,55 @@ public static class AIIntegrationSettings
 
     public static int ChatterMaxResponseLength => Math.Clamp(_config?.ChatterMaxResponseLength ?? 500, 80, 2000);
 
+    public static int ChatterPoolMaxResponseLength => Math.Clamp(
+        _config?.ChatterPoolMaxResponseLength ?? 2000,
+        200,
+        8000
+    );
+
     public static int StaffMaxGeneratedTokens => Math.Clamp(_config?.StaffMaxGeneratedTokens ?? 180, 20, 1000);
 
     public static int ChatterMaxGeneratedTokens => Math.Clamp(_config?.ChatterMaxGeneratedTokens ?? 60, 10, 300);
 
+    public static int ChatterPoolMaxGeneratedTokens => Math.Clamp(
+        _config?.ChatterPoolMaxGeneratedTokens ?? 240,
+        40,
+        800
+    );
+
     public static double StaffTemperature => Math.Clamp(_config?.StaffTemperature ?? 0.45, 0.0, 2.0);
 
     public static double ChatterTemperature => Math.Clamp(_config?.ChatterTemperature ?? 0.75, 0.0, 2.0);
+
+    public static double ChatterPoolTemperature => Math.Clamp(_config?.ChatterPoolTemperature ?? 0.8, 0.0, 2.0);
 
     public static bool AllowPlayerUse => _config?.AllowPlayerUse == true;
 
     public static string GetModel(AIRequestProfile profile) => profile switch
     {
         AIRequestProfile.Chatter => ChatterModel,
+        AIRequestProfile.ChatterPool => ChatterModel,
         _                        => StaffModel
     };
 
     public static int GetMaxResponseLength(AIRequestProfile profile) => profile switch
     {
-        AIRequestProfile.Chatter => ChatterMaxResponseLength,
+        AIRequestProfile.Chatter     => ChatterMaxResponseLength,
+        AIRequestProfile.ChatterPool => ChatterPoolMaxResponseLength,
         _                        => StaffMaxResponseLength
     };
 
     public static int GetMaxGeneratedTokens(AIRequestProfile profile) => profile switch
     {
-        AIRequestProfile.Chatter => ChatterMaxGeneratedTokens,
+        AIRequestProfile.Chatter     => ChatterMaxGeneratedTokens,
+        AIRequestProfile.ChatterPool => ChatterPoolMaxGeneratedTokens,
         _                        => StaffMaxGeneratedTokens
     };
 
     public static double GetTemperature(AIRequestProfile profile) => profile switch
     {
-        AIRequestProfile.Chatter => ChatterTemperature,
+        AIRequestProfile.Chatter     => ChatterTemperature,
+        AIRequestProfile.ChatterPool => ChatterPoolTemperature,
         _                        => StaffTemperature
     };
 
