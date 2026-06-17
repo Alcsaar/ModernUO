@@ -53,7 +53,8 @@ namespace Server.Engines.Harvest
                 StaticTiles = m_TreeTiles,
                 MaxRange = 2,
                 ConsumedPerHarvest = 10,
-                ConsumedPerFeluccaHarvest = 20,
+                // Keep Felucca log output aligned with the normal harvest amount.
+                ConsumedPerFeluccaHarvest = 10,
                 EffectActions = new[] { 13 },
                 EffectSounds = new[] { 0x13E },
                 EffectCounts = Core.AOS ? new[] { 1 } : new[] { 1, 2, 2, 2, 3 },
