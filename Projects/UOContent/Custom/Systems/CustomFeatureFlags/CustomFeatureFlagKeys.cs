@@ -6,6 +6,10 @@ public static class CustomFeatureFlagKeys
     public const string TemplateSaver = "template_saver";
     public const string RelativeThreat = "relative_threat";
     public const string CreatureAutoDispel = "creature_auto_dispel";
+    public const string HarvestingAutomation = "harvesting_automation";
     public const string TravelCodex = "travel_codex";
     public const string SupplyStones = "supply_stones";
+    public const string RareSpawns = "rare_spawns";
+    public const string MissionSystem = "mission_system";
+    public const string AIIntegration = "ai_integration";
 }

@@ -8,12 +8,25 @@ namespace Server.Custom.Systems.AchievementSystem;
 
 public sealed class AchievementGump : DynamicGump
 {
+    private const int HueTitle = 1153;
+    private const int HueHeader = 2213;
+    private const int HueText = 2101;
+    private const int HueMuted = 2401;
+    private const int HueReady = 68;
+    private const int HueProgress = 1153;
     private const int ButtonCategoryBase = 100;
     private const int ButtonPrevPage = 2000;
     private const int ButtonNextPage = 2001;
+    private const int ButtonAccountSkillDetails = 2002;
+    private const int ButtonRewardDetailsBase = 3000;
     private const int GumpWidth = 880;
     private const int GumpHeight = 620;
-    private const int EntriesPerPage = 6;
+    private const int EntriesPerPage = 4;
+    private const int EntryHeight = 94;
+    private const int EntryFrameHeight = EntryHeight - 6;
+    private const int EntryAccentHeight = 74;
+    private const int EntrySpacing = EntryHeight + 4;
+    private const int OverviewRowsPerPage = 5;
 
     private readonly PlayerMobile _from;
     private readonly AchievementJournalView _selectedView;
@@ -28,7 +41,7 @@ public sealed class AchievementGump : DynamicGump
         _from = from;
         _views = AchievementService.GetAvailableJournalViews();
         _selectedView = NormalizeJournalView(selectedView, _views);
-        _definitions = AchievementService.GetDefinitions(_selectedView);
+        _definitions = AchievementService.GetJournalDefinitions(from, _selectedView);
         _pageIndex = Math.Max(0, pageIndex);
     }
 
@@ -45,6 +58,8 @@ public sealed class AchievementGump : DynamicGump
 
     protected override void BuildLayout(ref DynamicGumpBuilder builder)
     {
+        // Keep the journal open client-side when reply buttons open secondary achievement gumps.
+        builder.SetNoDispose();
         builder.AddPage();
         builder.AddBackground(0, 0, GumpWidth, GumpHeight, 9270);
         builder.AddAlphaRegion(15, 15, GumpWidth - 30, GumpHeight - 30);
@@ -64,95 +79,127 @@ public sealed class AchievementGump : DynamicGump
 
     private void BuildHeader(ref DynamicGumpBuilder builder)
     {
-        builder.AddHtml(24, 18, 320, 24, HtmlColor("Achievement Journal", "#00FFFF"));
-        builder.AddHtml(585, 18, 170, 20, HtmlColor(BuildSummaryText(), "#FFFFFF"));
-        builder.AddImageTiled(20, 48, 840, 2, 5058);
-        builder.AddImageTiled(20, 50, 840, 2, 2624);
+        builder.AddLabel(385, 18, HueTitle, "Achievement Journal");
+        builder.AddLabel(338, 44, HueText, "Feats, milestones, and shard records");
+        builder.AddLabel(690, 28, HueText, BuildSummaryText());
+        DrawRule(ref builder, 24, 62, 832);
     }
 
     private void BuildCategoryRail(ref DynamicGumpBuilder builder)
     {
-        builder.AddBackground(20, 62, 190, 538, 9250);
-        builder.AddHtml(36, 78, 120, 20, HtmlColor("Categories", "#FFFFFF"));
+        builder.AddBackground(20, 80, 190, 500, 9250);
+        builder.AddAlphaRegion(26, 86, 178, 488);
+        builder.AddLabel(42, 104, HueHeader, "Categories");
 
-        var y = 112;
+        var y = 142;
+        AchievementJournalRailSection? currentSection = null;
 
         for (var i = 0; i < _views.Length; i++)
         {
             var view = _views[i];
             var selected = view == _selectedView;
+            var section = GetRailSection(view);
 
-            builder.AddBackground(34, y - 4, 160, 28, selected ? 9300 : 9250);
-            builder.AddButton(42, y, 4005, 4007, ButtonCategoryBase + i);
-            builder.AddHtml(
-                78,
-                y + 1,
-                100,
-                20,
-                HtmlColor(AchievementService.GetJournalViewDisplayName(view), selected ? "#00FF99" : "#D0D0D0")
-            );
+            if (currentSection != section)
+            {
+                if (currentSection != null)
+                {
+                    y += 2;
+                    DrawRule(ref builder, 42, y, 144);
+                    y += 6;
+                }
 
-            y += 36;
+                if (section == AchievementJournalRailSection.Character)
+                {
+                    builder.AddLabel(42, y, HueMuted, "Character");
+                    y += 20;
+                }
+
+                currentSection = section;
+            }
+
+            if (selected)
+            {
+                builder.AddImageTiled(40, y, 4, 20, 9304);
+            }
+
+            builder.AddButton(52, y, 4005, 4007, ButtonCategoryBase + i);
+            builder.AddLabel(88, y + 2, selected ? HueHeader : HueText, AchievementService.GetJournalViewDisplayName(view));
+
+            y += 30;
         }
 
-        builder.AddImageTiled(34, 536, 160, 2, 5058);
-        builder.AddImageTiled(34, 538, 160, 2, 2624);
+        DrawRule(ref builder, 42, 535, 144);
     }
 
     private void BuildOverview(ref DynamicGumpBuilder builder)
     {
-        builder.AddBackground(225, 62, 635, 120, 9250);
-        builder.AddHtml(248, 80, 180, 20, HtmlColor("Overview", "#FFFFFF"));
-        builder.AddHtml(248, 112, 160, 20, HtmlColor($"Unlocked: {AchievementService.GetUnlockedCount(_from)}", "#66FF66"));
-        builder.AddHtml(440, 112, 120, 20, HtmlColor($"Total: {AchievementService.GetDefinitionCount()}", "#FFFFFF"));
-        builder.AddHtml(610, 112, 170, 20, HtmlColor($"Completion: {BuildCompletionPercent()}", "#66B2FF"));
+        builder.AddBackground(225, 80, 635, 500, 9250);
+        builder.AddAlphaRegion(231, 86, 623, 488);
+        builder.AddLabel(248, 104, HueHeader, "Overview");
+        builder.AddLabel(640, 104, HueText, BuildSummaryText());
+        DrawRule(ref builder, 246, 128, 590);
 
-        builder.AddBackground(225, 196, 635, 404, 9250);
-        builder.AddHtml(248, 214, 180, 20, HtmlColor("Category Progress", "#FFFFFF"));
+        builder.AddLabel(260, 154, HueReady, $"Unlocked: {AchievementService.GetUnlockedCount(_from)}");
+        builder.AddLabel(440, 154, HueText, $"Total: {AchievementService.GetDefinitionCount()}");
+        builder.AddLabel(590, 154, HueProgress, $"Completion: {BuildCompletionPercent()}");
+        builder.AddLabel(735, 154, HueHeader, $"Points: {AchievementService.GetAchievementPoints(_from):N0}");
 
-        var y = 250;
+        DrawRule(ref builder, 246, 205, 590);
+        builder.AddLabel(260, 226, HueHeader, "Category Progress");
 
-        foreach (var view in _views)
+        var overviewViews = GetOverviewViews();
+        var totalPages = GetTotalPages(overviewViews.Count, OverviewRowsPerPage);
+        var pageIndex = ClampPageIndex(_pageIndex, totalPages);
+        var start = pageIndex * OverviewRowsPerPage;
+        var end = Math.Min(start + OverviewRowsPerPage, overviewViews.Count);
+        var y = 270;
+
+        for (var i = start; i < end; i++)
         {
-            if (view == AchievementJournalView.Overview)
-            {
-                continue;
-            }
-
+            var view = overviewViews[i];
             var total = AchievementService.GetDefinitionCount(view);
-            if (total <= 0)
-            {
-                continue;
-            }
-
             var unlocked = AchievementService.GetUnlockedCount(_from, view);
             var percent = total > 0 ? unlocked * 100 / total : 0;
 
-            builder.AddBackground(246, y - 8, 592, 44, 9200);
-            builder.AddHtml(262, y, 180, 20, HtmlColor(AchievementService.GetJournalViewDisplayName(view), "#FFFFFF"));
-            builder.AddHtml(450, y, 120, 20, HtmlColor($"{unlocked}/{total}", "#C0C0C0"));
-            builder.AddHtml(560, y, 60, 20, HtmlColor($"{percent}%", percent >= 100 ? "#66FF66" : "#66B2FF"));
-            DrawProgressBar(ref builder, 640, y + 2, 170, 14, unlocked, total);
+            var featsView = view == AchievementJournalView.Feats;
+            builder.AddImageTiled(260, y, 4, 34, percent >= 100 && !featsView ? 9304 : 5058);
+            builder.AddLabel(276, y, HueText, AchievementService.GetJournalViewDisplayName(view));
+
+            if (featsView)
+            {
+                builder.AddLabel(460, y, HueMuted, FormatClaimedCount(unlocked));
+            }
+            else
+            {
+                builder.AddLabel(460, y, HueMuted, $"{unlocked}/{total}");
+                builder.AddLabel(550, y, percent >= 100 ? HueReady : HueProgress, $"{percent}%");
+                DrawProgressBar(ref builder, 640, y + 4, 170, 12, unlocked, total);
+            }
 
             y += 54;
         }
+
+        DrawOverviewPaging(ref builder, pageIndex, totalPages);
     }
 
     private void BuildAchievementList(ref DynamicGumpBuilder builder)
     {
-        builder.AddBackground(225, 62, 635, 538, 9250);
-        builder.AddHtml(248, 78, 180, 20, HtmlColor(AchievementService.GetJournalViewDisplayName(_selectedView), "#FFFFFF"));
-        builder.AddHtml(628, 78, 190, 20, HtmlColor(BuildCategorySummaryText(), "#C0C0C0"));
+        builder.AddBackground(225, 80, 635, 500, 9250);
+        builder.AddAlphaRegion(231, 86, 623, 488);
+        builder.AddLabel(248, 104, HueHeader, AchievementService.GetJournalViewDisplayName(_selectedView));
+        builder.AddLabel(640, 104, HueText, BuildCategorySummaryText());
+        DrawRule(ref builder, 246, 128, 590);
 
-        var totalPages = GetTotalPages(_definitions.Count);
+        var totalPages = GetTotalPages(_definitions.Count, EntriesPerPage);
         var pageIndex = ClampPageIndex(_pageIndex, totalPages);
         var start = pageIndex * EntriesPerPage;
         var end = Math.Min(start + EntriesPerPage, _definitions.Count);
-        var y = 112;
+        var y = 150;
 
         if (_definitions.Count == 0)
         {
-            builder.AddHtml(248, y, 360, 20, HtmlColor("No achievements are registered in this category yet.", "#C0C0C0"));
+            builder.AddLabel(248, y, HueMuted, "No achievements are registered in this category yet.");
         }
         else
         {
@@ -162,41 +209,103 @@ public sealed class AchievementGump : DynamicGump
                 var progress = AchievementService.GetDisplayedProgress(_from, definition);
                 var unlocked = AchievementService.IsUnlocked(_from, definition.Id);
                 var unlockRecord = AchievementService.GetUnlockRecord(_from, definition.Id);
+                var serverFirstRecord = definition.TriggerType == AchievementTriggerType.ServerFirstSkillMilestone
+                    ? AchievementService.GetServerFirstRecord(definition.Id)
+                    : null;
+                var claimedByAnother = serverFirstRecord != null && !unlocked;
+                var claimedBySelf = serverFirstRecord != null && unlocked;
 
-                builder.AddBackground(244, y, 596, 66, 9200);
-                builder.AddHtml(260, y + 8, 250, 20, HtmlColor(definition.Name, unlocked ? "#66FF66" : "#FFFFFF"));
-                builder.AddHtml(520, y + 8, 300, 20, HtmlColor(definition.Description, "#C0C0C0"));
-                builder.AddHtml(260, y + 52, 210, 16, HtmlColor(BuildDefinitionMeta(definition), "#909090"));
+                var milestones = AchievementService.GetTierMilestones(definition);
+                var isMilestoneChain = milestones.Count > 1;
+                var finalThreshold = isMilestoneChain ? milestones[^1].Threshold : definition.Threshold;
+                var displayProgress = isMilestoneChain
+                    ? AchievementService.GetDisplayedTierProgress(_from, milestones)
+                    : progress;
 
-                if (unlocked && unlockRecord != null)
+                if (unlocked)
                 {
-                    builder.AddHtml(260, y + 34, 190, 20, HtmlColor($"Unlocked {unlockRecord.UnlockedUtc:yyyy-MM-dd}", "#66FF66"));
-                    DrawProgressBar(ref builder, 500, y + 38, 300, 12, definition.Threshold, definition.Threshold);
+                    builder.AddImageTiled(248, y, 4, EntryAccentHeight, 9304);
+                }
+                else if (claimedByAnother)
+                {
+                    builder.AddImageTiled(248, y, 4, EntryAccentHeight, 2624);
                 }
                 else
                 {
-                    builder.AddHtml(260, y + 34, 90, 20, HtmlColor($"{Math.Min(progress, definition.Threshold)}/{definition.Threshold}", "#66B2FF"));
-                    DrawProgressBar(ref builder, 360, y + 38, 440, 12, progress, definition.Threshold);
+                    builder.AddImageTiled(248, y, 4, EntryAccentHeight, 5058);
                 }
 
-                y += 76;
+                var titleHue = unlocked ? HueReady : claimedByAnother ? HueMuted : HueText;
+                var textColor = claimedByAnother ? "#909090" : "#D0D0D0";
+                DrawEntryFrame(ref builder, 246, y - 8, 592, EntryFrameHeight);
+                builder.AddLabel(264, y, titleHue, BuildEntryTitle(definition));
+                DrawRewardSummary(ref builder, definition, isMilestoneChain, serverFirstRecord, claimedByAnother, claimedBySelf, i, y);
+                builder.AddHtml(264, y + 24, 440, 24, HtmlColor(definition.Description, textColor));
+
+                if (definition.TriggerType == AchievementTriggerType.AccountUniqueGrandmasterSkills)
+                {
+                    builder.AddButton(740, y + 42, 4005, 4007, ButtonAccountSkillDetails);
+                    builder.AddLabel(774, y + 44, HueText, "Details");
+                }
+
+                if (unlocked && unlockRecord != null)
+                {
+                    builder.AddHtml(264, y + 44, 220, 18, HtmlColor(BuildUnlockedText(definition, unlockRecord), "#99FFCC"));
+                    if (isMilestoneChain)
+                    {
+                        DrawMilestoneProgressBar(ref builder, milestones, y, displayProgress, finalThreshold, claimedByAnother);
+                    }
+                    else
+                    {
+                        DrawProgressBar(ref builder, 500, y + 62, 220, 12, definition.Threshold, definition.Threshold);
+                    }
+                }
+                else if (claimedByAnother)
+                {
+                    builder.AddHtml(264, y + 44, 220, 18, HtmlColor(BuildClaimedByText(serverFirstRecord), "#909090"));
+                    if (isMilestoneChain)
+                    {
+                        DrawMilestoneProgressBar(ref builder, milestones, y, displayProgress, finalThreshold, claimedByAnother);
+                    }
+                    else
+                    {
+                        DrawUnavailableBar(ref builder, 500, y + 62, 220, 12);
+                    }
+                }
+                else
+                {
+                    var statusText = isMilestoneChain
+                        ? $"{Math.Min(displayProgress, finalThreshold)}/{finalThreshold}"
+                        : $"{Math.Min(displayProgress, definition.Threshold)}/{definition.Threshold}";
+
+                    builder.AddHtml(264, y + 44, 220, 18, HtmlColor(statusText, "#A8D8FF"));
+                    if (isMilestoneChain)
+                    {
+                        DrawMilestoneProgressBar(ref builder, milestones, y, displayProgress, finalThreshold, claimedByAnother);
+                    }
+                    else
+                    {
+                        DrawProgressBar(ref builder, 500, y + 62, 220, 12, progress, definition.Threshold);
+                    }
+                }
+
+                y += EntrySpacing;
             }
         }
 
-        builder.AddImageTiled(244, 548, 596, 2, 5058);
-        builder.AddImageTiled(244, 550, 596, 2, 2624);
-        builder.AddHtml(258, 562, 120, 20, HtmlColor($"Page {pageIndex + 1}/{Math.Max(1, totalPages)}", "#FFFFFF"));
+        DrawRule(ref builder, 246, 535, 590);
+        builder.AddLabel(258, 552, HueText, $"Page {pageIndex + 1}/{Math.Max(1, totalPages)}");
 
         if (pageIndex > 0)
         {
-            builder.AddButton(698, 560, 4014, 4016, ButtonPrevPage);
-            builder.AddHtml(733, 562, 45, 20, HtmlColor("Prev", "#FFFFFF"));
+            builder.AddButton(708, 550, 4014, 4016, ButtonPrevPage);
+            builder.AddLabel(742, 552, HueText, "Prev");
         }
 
         if (pageIndex + 1 < totalPages)
         {
-            builder.AddButton(778, 560, 4005, 4007, ButtonNextPage);
-            builder.AddHtml(813, 562, 45, 20, HtmlColor("Next", "#FFFFFF"));
+            builder.AddButton(788, 550, 4005, 4007, ButtonNextPage);
+            builder.AddLabel(822, 552, HueText, "Next");
         }
     }
 
@@ -219,11 +328,25 @@ public sealed class AchievementGump : DynamicGump
             case ButtonNextPage:
                 DisplayTo(from, _selectedView, _pageIndex + 1);
                 return;
+            case ButtonAccountSkillDetails:
+                AchievementAccountSkillProgressGump.DisplayTo(from);
+                return;
         }
 
         if (info.ButtonID >= ButtonCategoryBase && info.ButtonID < ButtonCategoryBase + _views.Length)
         {
             DisplayTo(from, _views[info.ButtonID - ButtonCategoryBase], 0);
+            return;
+        }
+
+        if (info.ButtonID >= ButtonRewardDetailsBase && info.ButtonID < ButtonRewardDetailsBase + _definitions.Count)
+        {
+            AchievementRewardDetailsGump.DisplayTo(
+                from,
+                _definitions[info.ButtonID - ButtonRewardDetailsBase],
+                _selectedView,
+                _pageIndex
+            );
         }
     }
 
@@ -234,6 +357,13 @@ public sealed class AchievementGump : DynamicGump
 
     private string BuildCategorySummaryText()
     {
+        if (_selectedView == AchievementJournalView.Feats)
+        {
+            var claimed = AchievementService.GetUnlockedCount(_from, _selectedView);
+
+            return FormatClaimedCount(claimed);
+        }
+
         return $"{AchievementService.GetUnlockedCount(_from, _selectedView)}/{AchievementService.GetDefinitionCount(_selectedView)} unlocked";
     }
 
@@ -271,9 +401,185 @@ public sealed class AchievementGump : DynamicGump
         }
     }
 
-    private static int GetTotalPages(int count)
+    private static void DrawUnavailableBar(ref DynamicGumpBuilder builder, int x, int y, int width, int height)
     {
-        return Math.Max(1, (count + EntriesPerPage - 1) / EntriesPerPage);
+        builder.AddImageTiled(x, y, width, height, 2624);
+    }
+
+    /* BEGIN ACHIEVEMENT JOURNAL MILESTONES: draw collapsed tier chains with every target visible */
+    private static void DrawMilestoneProgressBar(
+        ref DynamicGumpBuilder builder,
+        IReadOnlyList<AchievementDefinition> milestones,
+        int rowY,
+        int progress,
+        int finalThreshold,
+        bool unavailable
+    )
+    {
+        const int barX = 390;
+        const int barY = 62;
+        const int barWidth = 330;
+        const int barHeight = 12;
+
+        if (finalThreshold <= 0)
+        {
+            return;
+        }
+
+        var fillWidth = unavailable ? 0 : GetMilestoneFillWidth(milestones, progress, barWidth);
+        builder.AddImageTiled(barX, rowY + barY, barWidth, barHeight, 2624);
+
+        if (fillWidth > 0)
+        {
+            builder.AddImageTiled(barX, rowY + barY, fillWidth, barHeight, 9304);
+        }
+
+        for (var i = 0; i < milestones.Count; i++)
+        {
+            var milestone = milestones[i];
+            var markerX = barX + GetMilestoneMarkerOffset(milestones.Count, i, barWidth);
+            var achieved = progress >= milestone.Threshold;
+            var labelX = Math.Max(barX, Math.Min(markerX - 16, barX + barWidth - 42));
+
+            builder.AddImageTiled(markerX, rowY + barY - 4, 2, barHeight + 8, achieved ? 9304 : 5058);
+            builder.AddLabel(labelX, rowY + 72, achieved ? HueReady : HueText, FormatMilestoneThreshold(milestone.Threshold));
+        }
+    }
+
+    private static int GetMilestoneFillWidth(IReadOnlyList<AchievementDefinition> milestones, int progress, int barWidth)
+    {
+        if (milestones.Count == 0 || progress <= 0)
+        {
+            return 0;
+        }
+
+        if (progress >= milestones[^1].Threshold)
+        {
+            return barWidth;
+        }
+
+        var previousThreshold = 0;
+        var previousOffset = 0;
+
+        for (var i = 0; i < milestones.Count; i++)
+        {
+            var milestone = milestones[i];
+            var markerOffset = GetMilestoneMarkerOffset(milestones.Count, i, barWidth);
+
+            if (progress <= milestone.Threshold)
+            {
+                var thresholdSpan = Math.Max(1, milestone.Threshold - previousThreshold);
+                var offsetSpan = markerOffset - previousOffset;
+                var segmentProgress = Math.Max(0, progress - previousThreshold);
+
+                return previousOffset + offsetSpan * segmentProgress / thresholdSpan;
+            }
+
+            previousThreshold = milestone.Threshold;
+            previousOffset = markerOffset;
+        }
+
+        return barWidth;
+    }
+
+    private static int GetMilestoneMarkerOffset(int milestoneCount, int index, int barWidth)
+    {
+        if (milestoneCount <= 1)
+        {
+            return barWidth;
+        }
+
+        const int edgePadding = 10;
+        var usableWidth = Math.Max(1, barWidth - edgePadding * 2);
+
+        return edgePadding + usableWidth * index / (milestoneCount - 1);
+    }
+
+    private static string FormatMilestoneThreshold(int threshold)
+    {
+        if (threshold >= 1000000)
+        {
+            return threshold % 1000000 == 0 ? $"{threshold / 1000000}M" : $"{threshold / 1000000.0:0.#}M";
+        }
+
+        if (threshold >= 1000)
+        {
+            return threshold % 1000 == 0 ? $"{threshold / 1000}K" : $"{threshold / 1000.0:0.#}K";
+        }
+
+        return threshold.ToString();
+    }
+    /* END ACHIEVEMENT JOURNAL MILESTONES */
+
+    private static void DrawRule(ref DynamicGumpBuilder builder, int x, int y, int width)
+    {
+        builder.AddImageTiled(x, y, width, 2, 5058);
+        builder.AddImageTiled(x, y + 2, width, 2, 2624);
+    }
+
+    private static void DrawEntryFrame(ref DynamicGumpBuilder builder, int x, int y, int width, int height)
+    {
+        // Adds a subdued row frame so dense achievement entries separate cleanly without bright panel chrome.
+        builder.AddImageTiled(x, y, width, 1, 5058);
+        builder.AddImageTiled(x, y + 1, width, 1, 2624);
+        builder.AddImageTiled(x, y + height - 2, width, 1, 2624);
+        builder.AddImageTiled(x, y + height - 1, width, 1, 5058);
+        builder.AddImageTiled(x, y, 1, height, 2624);
+        builder.AddImageTiled(x + width - 1, y, 1, height, 2624);
+    }
+
+    private static string FormatClaimedCount(int count)
+    {
+        return count == 1 ? "1 claimed" : $"{count} claimed";
+    }
+
+    private List<AchievementJournalView> GetOverviewViews()
+    {
+        var views = new List<AchievementJournalView>(_views.Length);
+
+        for (var i = 0; i < _views.Length; i++)
+        {
+            var view = _views[i];
+
+            if (view == AchievementJournalView.Overview || AchievementService.GetDefinitionCount(view) <= 0)
+            {
+                continue;
+            }
+
+            views.Add(view);
+        }
+
+        return views;
+    }
+
+    /* BEGIN ACHIEVEMENT JOURNAL OVERVIEW: page the category summary list inside the fixed content frame */
+    private static void DrawOverviewPaging(ref DynamicGumpBuilder builder, int pageIndex, int totalPages)
+    {
+        DrawRule(ref builder, 246, 526, 590);
+        builder.AddLabel(258, 542, HueText, $"Page {pageIndex + 1}/{Math.Max(1, totalPages)}");
+
+        if (totalPages <= 1)
+        {
+            return;
+        }
+
+        if (pageIndex > 0)
+        {
+            builder.AddButton(688, 540, 4014, 4016, ButtonPrevPage);
+            builder.AddLabel(722, 542, HueText, "Prev");
+        }
+
+        if (pageIndex + 1 < totalPages)
+        {
+            builder.AddButton(776, 540, 4005, 4007, ButtonNextPage);
+            builder.AddLabel(810, 542, HueText, "Next");
+        }
+    }
+    /* END ACHIEVEMENT JOURNAL OVERVIEW */
+
+    private static int GetTotalPages(int count, int entriesPerPage)
+    {
+        return Math.Max(1, (count + entriesPerPage - 1) / entriesPerPage);
     }
 
     private static int ClampPageIndex(int pageIndex, int totalPages)
@@ -281,13 +587,147 @@ public sealed class AchievementGump : DynamicGump
         return Math.Max(0, Math.Min(pageIndex, Math.Max(0, totalPages - 1)));
     }
 
-    private static string BuildDefinitionMeta(AchievementDefinition definition)
+    private static AchievementJournalRailSection GetRailSection(AchievementJournalView view)
+    {
+        return view switch
+        {
+            AchievementJournalView.CharacterSkills or
+                AchievementJournalView.CharacterHunting or
+                AchievementJournalView.CharacterExploration or
+                AchievementJournalView.CharacterHarvesting or
+                AchievementJournalView.CharacterEconomy or
+                AchievementJournalView.CharacterMissions =>
+                AchievementJournalRailSection.Character,
+            AchievementJournalView.Account => AchievementJournalRailSection.Account,
+            AchievementJournalView.Feats or AchievementJournalView.Legacy => AchievementJournalRailSection.Feats,
+            _ => AchievementJournalRailSection.General
+        };
+    }
+
+    private static string BuildDefinitionMeta(
+        AchievementDefinition definition,
+        AchievementServerFirstRecord serverFirstRecord = null,
+        bool claimedByAnother = false,
+        bool claimedBySelf = false
+    )
     {
         var category = AchievementService.GetCategoryDisplayName(definition.Category);
-        var scope = AchievementService.GetScopeDisplayName(definition.Scope);
-        var legacy = string.IsNullOrWhiteSpace(definition.LegacyLabel) ? "Legacy" : definition.LegacyLabel;
-        return definition.IsLegacy ? $"{scope} / {legacy} / {category}" : $"{scope} / {category}";
+
+        if (definition.TriggerType == AchievementTriggerType.ServerFirstSkillMilestone)
+        {
+            if (claimedBySelf && serverFirstRecord != null)
+            {
+                return "Your Server First";
+            }
+
+            return claimedByAnother && serverFirstRecord != null ? "Claimed" : "Server First";
+        }
+
+        if (definition.IsLegacy)
+        {
+            var legacy = string.IsNullOrWhiteSpace(definition.LegacyLabel) ? "Retired" : definition.LegacyLabel;
+            return legacy;
+        }
+
+        return category;
     }
+
+    private static string BuildEntryTitle(AchievementDefinition definition)
+    {
+        if (
+            definition.TriggerType == AchievementTriggerType.ServerFirstSkillMilestone &&
+            definition.Name.StartsWith("Server First: ", StringComparison.OrdinalIgnoreCase)
+        )
+        {
+            return definition.Name["Server First: ".Length..];
+        }
+
+        return definition.Name;
+    }
+
+    private static string BuildClaimedByText(AchievementServerFirstRecord record)
+    {
+        return record == null ? "No longer available" : $"Claimed by {record.PlayerName}";
+    }
+
+    private static string BuildUnlockedText(AchievementDefinition definition, AchievementUnlockRecord unlockRecord)
+    {
+        return definition.TriggerType == AchievementTriggerType.ServerFirstSkillMilestone
+            ? $"Claimed {unlockRecord.UnlockedUtc:yyyy-MM-dd}"
+            : $"Unlocked {unlockRecord.UnlockedUtc:yyyy-MM-dd}";
+    }
+
+    /* BEGIN ACHIEVEMENT REWARD DISPLAY: journal rows use the former category area for reward information */
+    private static void DrawRewardSummary(
+        ref DynamicGumpBuilder builder,
+        AchievementDefinition definition,
+        bool isMilestoneChain,
+        AchievementServerFirstRecord serverFirstRecord,
+        bool claimedByAnother,
+        bool claimedBySelf,
+        int index,
+        int y
+    )
+    {
+        if (
+            definition.TriggerType == AchievementTriggerType.ServerFirstSkillMilestone ||
+            definition.IsLegacy ||
+            claimedByAnother ||
+            claimedBySelf
+        )
+        {
+            builder.AddLabel(620, y, claimedByAnother ? HueMuted : HueHeader, BuildDefinitionMeta(definition, serverFirstRecord, claimedByAnother, claimedBySelf));
+            return;
+        }
+
+        builder.AddLabel(664, y, HueHeader, $"{definition.AchievementPoints:N0} points");
+
+        if (isMilestoneChain)
+        {
+            builder.AddButton(548, y + 24, 4005, 4007, ButtonRewardDetailsBase + index);
+            builder.AddLabel(583, y + 26, HueText, "Rewards");
+            return;
+        }
+
+        var itemText = BuildItemRewardText(definition);
+
+        if (!string.IsNullOrWhiteSpace(itemText))
+        {
+            builder.AddHtml(548, y + 26, 280, 18, HtmlColor(itemText, "#A8D8FF"));
+        }
+    }
+
+    private static string BuildRewardText(AchievementDefinition definition)
+    {
+        if (definition == null)
+        {
+            return null;
+        }
+
+        var pointsText = definition.AchievementPoints > 0
+            ? $"{definition.AchievementPoints:N0} pt{(definition.AchievementPoints == 1 ? string.Empty : "s")}"
+            : null;
+        var itemText = string.IsNullOrWhiteSpace(definition.ItemRewardName) ? null : definition.ItemRewardName;
+
+        if (string.IsNullOrWhiteSpace(pointsText))
+        {
+            return string.IsNullOrWhiteSpace(itemText) ? null : $"Reward: {itemText}";
+        }
+
+        if (string.IsNullOrWhiteSpace(itemText))
+        {
+            return $"Reward: {pointsText}";
+        }
+
+        return $"Reward: {pointsText} + {itemText}";
+    }
+
+    private static string BuildItemRewardText(AchievementDefinition definition)
+    {
+        return string.IsNullOrWhiteSpace(definition?.ItemRewardName) ? null : $"Reward: {definition.ItemRewardName}";
+    }
+
+    /* END ACHIEVEMENT REWARD DISPLAY */
 
     private static AchievementJournalView NormalizeJournalView(AchievementJournalView view, IReadOnlyList<AchievementJournalView> views)
     {
@@ -300,6 +740,163 @@ public sealed class AchievementGump : DynamicGump
         }
 
         return AchievementJournalView.Overview;
+    }
+
+    private static string HtmlColor(string text, string hex)
+    {
+        return $"<BASEFONT COLOR={hex}>{text}</BASEFONT>";
+    }
+
+    private enum AchievementJournalRailSection
+    {
+        General,
+        Character,
+        Account,
+        Feats
+    }
+}
+
+public sealed class AchievementRewardDetailsGump : DynamicGump
+{
+    private const int HueTitle = 1153;
+    private const int HueHeader = 2213;
+    private const int HueText = 2101;
+    private const int ButtonClose = 1;
+
+    private readonly AchievementDefinition _definition;
+    private readonly List<AchievementDefinition> _milestones;
+    private readonly AchievementJournalView? _returnView;
+    private readonly int _returnPageIndex;
+
+    public override bool Singleton => false;
+
+    private AchievementRewardDetailsGump(
+        AchievementDefinition definition,
+        AchievementJournalView? returnView,
+        int returnPageIndex
+    ) : base(235, 120)
+    {
+        _definition = definition;
+        _milestones = AchievementService.GetTierMilestones(definition);
+        _returnView = returnView;
+        _returnPageIndex = Math.Max(0, returnPageIndex);
+    }
+
+    public static void DisplayTo(PlayerMobile from, AchievementDefinition definition)
+    {
+        DisplayTo(from, definition, null, 0);
+    }
+
+    public static void DisplayTo(
+        PlayerMobile from,
+        AchievementDefinition definition,
+        AchievementJournalView? returnView,
+        int returnPageIndex
+    )
+    {
+        if (from?.NetState == null || definition == null)
+        {
+            return;
+        }
+
+        from.SendGump(new AchievementRewardDetailsGump(definition, returnView, returnPageIndex));
+    }
+
+    protected override void BuildLayout(ref DynamicGumpBuilder builder)
+    {
+        var rowCount = Math.Max(1, _milestones.Count);
+        var height = 132 + rowCount * 38;
+
+        builder.AddPage();
+        builder.AddBackground(0, 0, 430, height, 9270);
+        builder.AddAlphaRegion(15, 15, 400, height - 30);
+
+        builder.AddLabel(28, 22, HueTitle, "Achievement Rewards");
+        builder.AddHtml(28, 50, 360, 24, HtmlColor(BuildTitle(_definition), "#FFFFFF"));
+        DrawRule(ref builder, 28, 82, 374);
+
+        var y = 102;
+
+        for (var i = 0; i < _milestones.Count; i++)
+        {
+            var milestone = _milestones[i];
+            var rewardText = BuildRewardText(milestone);
+
+            builder.AddLabel(34, y, HueHeader, FormatMilestoneThreshold(milestone.Threshold));
+            builder.AddHtml(118, y + 2, 270, 20, HtmlColor(rewardText, rewardText == "No reward" ? "#909090" : "#D0D0D0"));
+
+            y += 38;
+        }
+
+        builder.AddButton(170, height - 38, 4005, 4007, ButtonClose);
+        builder.AddLabel(205, height - 36, HueText, "Close");
+    }
+
+    public override void OnResponse(NetState sender, in RelayInfo info)
+    {
+        if (sender?.Mobile is PlayerMobile player && _returnView.HasValue)
+        {
+            AchievementGump.DisplayTo(player, _returnView.Value, _returnPageIndex);
+        }
+    }
+
+    private static string BuildTitle(AchievementDefinition definition)
+    {
+        if (definition == null)
+        {
+            return "Milestones";
+        }
+
+        var name = definition.Name;
+        var marker = name.LastIndexOf(' ');
+
+        if (marker > 0 && marker + 1 < name.Length && IsRomanTier(name[(marker + 1)..]))
+        {
+            return name[..marker];
+        }
+
+        return name;
+    }
+
+    private static bool IsRomanTier(string value)
+    {
+        return value is "I" or "II" or "III" or "IV" or "V" or "VI" or "VII";
+    }
+
+    private static string BuildRewardText(AchievementDefinition definition)
+    {
+        var pointsText = definition.AchievementPoints > 0
+            ? $"{definition.AchievementPoints:N0} achievement point{(definition.AchievementPoints == 1 ? string.Empty : "s")}"
+            : null;
+        var itemText = string.IsNullOrWhiteSpace(definition.ItemRewardName) ? null : definition.ItemRewardName;
+
+        if (string.IsNullOrWhiteSpace(pointsText))
+        {
+            return string.IsNullOrWhiteSpace(itemText) ? "No reward" : itemText;
+        }
+
+        return string.IsNullOrWhiteSpace(itemText) ? pointsText : $"{pointsText} + {itemText}";
+    }
+
+    private static string FormatMilestoneThreshold(int threshold)
+    {
+        if (threshold >= 1000000)
+        {
+            return threshold % 1000000 == 0 ? $"{threshold / 1000000}M" : $"{threshold / 1000000.0:0.#}M";
+        }
+
+        if (threshold >= 1000)
+        {
+            return threshold % 1000 == 0 ? $"{threshold / 1000}K" : $"{threshold / 1000.0:0.#}K";
+        }
+
+        return threshold.ToString();
+    }
+
+    private static void DrawRule(ref DynamicGumpBuilder builder, int x, int y, int width)
+    {
+        builder.AddImageTiled(x, y, width, 2, 5058);
+        builder.AddImageTiled(x, y + 2, width, 2, 2624);
     }
 
     private static string HtmlColor(string text, string hex)

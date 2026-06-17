@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using Server;
 using Server.Accounting;
+using Server.Custom.Systems.AchievementSystem;
 using Server.Engines.Craft;
 using Server.Items;
 using Server.Logging;
@@ -1121,6 +1122,8 @@ public static class ActivityTrackingService
                 break;
         }
 
+        RecordAchievementEconomyGold(player, source, amount);
+
         var activity = source == ActivityGoldSource.NpcVendorSale && saleLines?.Count > 0
             ? $"{timestamp:O}: Earned {amount} gold from {source} ({sourceName}/{sourceType}/{sourceSerial}) at {location.Map} {location.Location} region={location.RegionName} selling {BuildVendorSaleSummary(saleLines)}"
             : $"{timestamp:O}: Earned {amount} gold from {source} ({sourceName}/{sourceType}/{sourceSerial}) at {location.Map} {location.Location} region={location.RegionName}";
@@ -1131,6 +1134,25 @@ public static class ActivityTrackingService
         if (DebugEnabled)
         {
             WriteGoldDebug(player, amount, source, sourceSerial, sourceName, sourceType, location, saleLines);
+        }
+    }
+
+    private static void RecordAchievementEconomyGold(PlayerMobile player, ActivityGoldSource source, int amount)
+    {
+        switch (source)
+        {
+            case ActivityGoldSource.MonsterCorpse:
+                AchievementService.RecordEconomyGoldEarned(player, AchievementEconomyGoldSource.MonsterLoot, amount);
+                return;
+            case ActivityGoldSource.NpcVendorSale:
+                AchievementService.RecordEconomyGoldEarned(player, AchievementEconomyGoldSource.VendorSale, amount);
+                return;
+            case ActivityGoldSource.TreasureMapChestGold:
+                AchievementService.RecordEconomyGoldEarned(player, AchievementEconomyGoldSource.TreasureMapChest, amount);
+                return;
+            case ActivityGoldSource.DungeonTreasureChestGold:
+                AchievementService.RecordEconomyGoldEarned(player, AchievementEconomyGoldSource.DungeonChest, amount);
+                return;
         }
     }
 

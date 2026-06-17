@@ -2,22 +2,33 @@ using System;
 using System.Collections.Generic;
 using ModernUO.CodeGeneratedEvents;
 using Server;
+using Server.Accounting;
 using Server.Custom.Systems.CustomFeatureFlags;
 using Server.Gumps;
 using Server.Items;
 using Server.Logging;
 using Server.Mobiles;
+using Server.Network;
+using Server.Regions;
 
 namespace Server.Custom.Systems.AchievementSystem;
 
 public static class AchievementService
 {
+    private const string AccountAllGrandmasterSkillsAchievementId = "account_all_grandmaster_skills";
+    private const string AccountGrandmasterSkillProgressPrefix = "account_gm_skill_";
+    private const string WorldExplorerAchievementId = "world_explorer";
+
     private static readonly ILogger Logger = LogFactory.GetLogger(typeof(AchievementService));
     private static readonly Dictionary<string, AchievementDefinition> _definitions = new(StringComparer.OrdinalIgnoreCase);
     private static readonly Dictionary<uint, AchievementPlayerState> _players = new();
     private static readonly Dictionary<string, AchievementAccountState> _accounts = new(StringComparer.OrdinalIgnoreCase);
     private static readonly Dictionary<uint, Queue<AchievementNotificationRecord>> _pendingNotifications = new();
     private static readonly Dictionary<uint, AchievementNotificationRecord> _activeNotifications = new();
+    private static readonly Dictionary<string, AchievementServerFirstRecord> _serverFirsts = new(StringComparer.OrdinalIgnoreCase);
+    private static readonly Dictionary<string, List<AchievementServerFirstCandidateRecord>> _serverFirstCandidates = new(StringComparer.OrdinalIgnoreCase);
+    private static readonly Dictionary<uint, string> _lastExplorationRegion = new();
+    private static bool _allowStaffServerFirstsForTesting;
     private static bool _configured;
     private static bool _initialized;
 
@@ -25,9 +36,13 @@ public static class AchievementService
     {
         AchievementJournalView.Overview,
         AchievementJournalView.CharacterSkills,
+        AchievementJournalView.CharacterHunting,
+        AchievementJournalView.CharacterExploration,
         AchievementJournalView.CharacterHarvesting,
+        AchievementJournalView.CharacterEconomy,
+        AchievementJournalView.CharacterMissions,
         AchievementJournalView.Account,
-        AchievementJournalView.Legacy
+        AchievementJournalView.Feats
     };
 
     private static readonly Dictionary<SkillName, string> _skillDisplayOverrides = new()
@@ -110,7 +125,207 @@ public static class AchievementService
         (CraftResource.Valorite, "Valorite")
     };
 
-    private static readonly int[] _harvestTierThresholds = { 500, 1000, 5000 };
+    private static readonly int[] _harvestTierThresholds = { 500, 2500, 5000, 10000 };
+    private static readonly int[] _monsterGoldTierThresholds = { 50000, 250000, 1000000, 5000000, 10000000 };
+    private static readonly int[] _treasureMapGoldTierThresholds = { 25000, 100000, 500000, 1000000, 2500000 };
+    private static readonly int[] _dungeonChestGoldTierThresholds = { 10000, 50000, 250000, 500000, 1000000 };
+    private static readonly int[] _vendorSaleGoldTierThresholds = { 10000, 50000, 250000, 500000, 1000000 };
+    private static readonly int[] _dailyMissionCompletionTierThresholds = { 10, 50, 100, 250, 500 };
+    private static readonly int[] _weeklyMissionCompletionTierThresholds = { 10, 25, 50, 100, 250 };
+    private static readonly int[] _creatureFamilyKillTierThresholds = { 500, 2500, 5000, 10000 };
+    private static readonly int[] _creatureSpecificKillTierThresholds = { 100, 500, 1000, 2500 };
+    private static readonly int[] _creatureEliteKillTierThresholds = { 25, 100, 250, 500 };
+    private static readonly int[] _treasureMapCompletionTierThresholds = { 1, 10, 50, 100 };
+
+    /* BEGIN ACHIEVEMENT EXPLORATION: named region visit achievements for towns, dungeons, and shrines */
+    private static readonly ExplorationVisitDefinition[] _townVisitDefinitions =
+    {
+        new("town_britain", "Britain"),
+        new("town_trinsic", "Trinsic"),
+        new("town_minoc", "Minoc"),
+        new("town_moonglow", "Moonglow"),
+        new("town_yew", "Yew"),
+        new("town_skara_brae", "Skara Brae"),
+        new("town_new_haven", "New Haven"),
+        new("town_magincia", "Magincia"),
+        new("town_vesper", "Vesper"),
+        new("town_jhelom", "Jhelom"),
+        new("town_nujelm", "Nujel'm"),
+        new("town_serpents_hold", "Serpent's Hold")
+    };
+
+    private static readonly ExplorationVisitDefinition[] _dungeonVisitDefinitions =
+    {
+        new("dungeon_covetous", "Covetous"),
+        new("dungeon_deceit", "Deceit"),
+        new("dungeon_despise", "Despise"),
+        new("dungeon_destard", "Destard"),
+        new("dungeon_wrong", "Wrong"),
+        new("dungeon_shame", "Shame"),
+        new("dungeon_hythloth", "Hythloth"),
+        new("dungeon_doom", "Doom")
+    };
+
+    private static readonly ExplorationVisitDefinition[] _shrineVisitDefinitions =
+    {
+        new("shrine_chaos", "Chaos Shrine", new Point3D(1470, 843, 0), 12),
+        new("shrine_compassion", "Compassion Shrine", new Point3D(1857, 865, -1), 12),
+        new("shrine_honesty", "Honesty Shrine", new Point3D(4220, 563, 36), 12),
+        new("shrine_honor", "Honor Shrine", new Point3D(1732, 3528, 0), 12),
+        new("shrine_humility", "Humility Shrine", new Point3D(4264, 3707, 0), 12),
+        new("shrine_justice", "Justice Shrine", new Point3D(1300, 644, 8), 12),
+        new("shrine_sacrifice", "Sacrifice Shrine", new Point3D(3355, 302, 9), 12),
+        new("shrine_spirituality", "Spirituality Shrine", new Point3D(1606, 2490, 5), 12),
+        new("shrine_valor", "Valor Shrine", new Point3D(2500, 3931, 3), 12)
+    };
+    /* END ACHIEVEMENT EXPLORATION */
+
+    /* BEGIN ACHIEVEMENT CREATURE KILLS: concrete class-name groups avoid reflection in the death hot path */
+    private static readonly string[] _ratmanCreatureTypes =
+    {
+        "Ratman",
+        "RatmanArcher",
+        "RatmanMage"
+    };
+
+    private static readonly string[] _lizardmanCreatureTypes =
+    {
+        "Lizardman"
+    };
+
+    private static readonly string[] _reptileCreatureTypes =
+    {
+        "Lizardman",
+        "Drake",
+        "Dragon",
+        "WhiteWyrm",
+        "AncientWyrm",
+        "ShadowWyrm",
+        "SerpentineDragon",
+        "SkeletalDragon",
+        "GreaterDragon",
+        "Wyvern",
+        "SeaSerpent",
+        "DeepSeaSerpent",
+        "Kraken",
+        "Leviathan",
+        "OphidianWarrior",
+        "OphidianKnight",
+        "OphidianMage",
+        "OphidianMatriarch",
+        "OphidianArchmage",
+        "Hydra"
+    };
+
+    private static readonly string[] _dragonCreatureTypes =
+    {
+        "Dragon",
+        "WhiteWyrm",
+        "AncientWyrm",
+        "ShadowWyrm",
+        "SerpentineDragon",
+        "SkeletalDragon",
+        "GreaterDragon"
+    };
+
+    private static readonly string[] _drakeCreatureTypes =
+    {
+        "Drake"
+    };
+
+    private static readonly string[] _lichCreatureTypes =
+    {
+        "Lich"
+    };
+
+    private static readonly string[] _lichLordCreatureTypes =
+    {
+        "LichLord"
+    };
+
+    private static readonly string[] _ancientLichCreatureTypes =
+    {
+        "AncientLich"
+    };
+
+    private static readonly string[] _undeadCreatureTypes =
+    {
+        "Skeleton",
+        "SkeletalKnight",
+        "SkeletalMage",
+        "BoneKnight",
+        "BoneMagi",
+        "Zombie",
+        "Ghoul",
+        "Mummy",
+        "Shade",
+        "Spectre",
+        "Wraith",
+        "Lich",
+        "LichLord",
+        "AncientLich",
+        "RottingCorpse",
+        "SkeletalDragon",
+        "Bogle",
+        "WailingBanshee",
+        "RestlessSoul",
+        "KhaldunRevenant",
+        "SpectralArmour",
+        "VampireBat"
+    };
+
+    private static readonly string[] _daemonCreatureTypes =
+    {
+        "Daemon",
+        "Balron",
+        "ChaosDaemon",
+        "Moloch"
+    };
+
+    private static readonly string[] _elementalCreatureTypes =
+    {
+        "EarthElemental",
+        "AirElemental",
+        "FireElemental",
+        "WaterElemental",
+        "PoisonElemental",
+        "BloodElemental",
+        "SnowElemental",
+        "IceElemental",
+        "AcidElemental",
+        "Efreet"
+    };
+
+    private static readonly string[] _orcCreatureTypes =
+    {
+        "Orc",
+        "OrcCaptain",
+        "OrcishLord",
+        "OrcBomber"
+    };
+
+    private static readonly string[] _ogreTrollCreatureTypes =
+    {
+        "Ogre",
+        "OgreLord",
+        "ArcticOgreLord",
+        "Troll",
+        "FrostTroll",
+        "Ettin"
+    };
+
+    private static readonly string[] _arachnidCreatureTypes =
+    {
+        "GiantSpider",
+        "GiantBlackWidow",
+        "FrostSpider",
+        "DreadSpider",
+        "TerathanDrone",
+        "TerathanWarrior",
+        "TerathanAvenger",
+        "TerathanMatriarch"
+    };
+    /* END ACHIEVEMENT CREATURE KILLS */
 
     public static void Configure()
     {
@@ -123,6 +338,7 @@ public static class AchievementService
 
         AchievementPersistence.Configure();
         AchievementCommands.Configure();
+        EventSink.Movement += OnMovement;
         EnsureFlagRegistered();
         RegisterDefinitions();
     }
@@ -142,6 +358,74 @@ public static class AchievementService
     public static bool IsSystemEnabled()
     {
         return CustomFeatureFlagManager.IsEnabled(CustomFeatureFlagKeys.AchievementSystem);
+    }
+
+    /* BEGIN ACHIEVEMENT FEATURE FLAG: centralize custom feature flag writes for staff controls */
+    public static CustomFeatureFlagStatus GetSystemFlagStatus()
+    {
+        EnsureFlagRegistered();
+        return CustomFeatureFlagManager.GetStatus(CustomFeatureFlagKeys.AchievementSystem);
+    }
+
+    public static bool TrySetSystemEnabled(bool enabled, Mobile modifiedBy, out string failureReason)
+    {
+        EnsureFlagRegistered();
+        return CustomFeatureFlagManager.SetEnabled(
+            CustomFeatureFlagKeys.AchievementSystem,
+            enabled,
+            modifiedBy?.Name,
+            out failureReason
+        );
+    }
+
+    public static bool TryToggleSystemEnabled(Mobile modifiedBy, out string failureReason)
+    {
+        EnsureFlagRegistered();
+        return CustomFeatureFlagManager.Toggle(
+            CustomFeatureFlagKeys.AchievementSystem,
+            modifiedBy?.Name,
+            out failureReason
+        );
+    }
+    /* END ACHIEVEMENT FEATURE FLAG */
+
+    public static bool IsMissionTrackingEnabled()
+    {
+        return AchievementSettings.EnableMissionTracking;
+    }
+
+    /* BEGIN ACHIEVEMENT REWARDS: expose the spendable point balance future reward stores can consume */
+    public static int GetAchievementPoints(PlayerMobile player)
+    {
+        if (!ShouldTrackPlayer(player))
+        {
+            return 0;
+        }
+
+        var playerState = GetOrCreatePlayerState(player);
+        var accountState = GetOrCreateAccountState(player);
+
+        return GetAvailableAchievementPoints(playerState) + GetAvailableAchievementPoints(accountState);
+    }
+
+    public static int GetLifetimeAchievementPoints(PlayerMobile player)
+    {
+        if (!ShouldTrackPlayer(player))
+        {
+            return 0;
+        }
+
+        var playerState = GetOrCreatePlayerState(player);
+        var accountState = GetOrCreateAccountState(player);
+
+        return playerState.AchievementPointsEarned + accountState.AchievementPointsEarned;
+    }
+    /* END ACHIEVEMENT REWARDS */
+
+    public static bool AllowStaffServerFirstsForTesting
+    {
+        get => _allowStaffServerFirstsForTesting;
+        set => _allowStaffServerFirstsForTesting = value;
     }
 
     public static void DisplayAchievementGump(PlayerMobile player, AchievementJournalView view = AchievementJournalView.Overview, int pageIndex = 0)
@@ -169,6 +453,8 @@ public static class AchievementService
             return;
         }
 
+        RefreshAccountGrandmasterSkills(player);
+
         foreach (var definition in _definitions.Values)
         {
             var state = GetOrCreateProgressState(player, definition);
@@ -192,6 +478,14 @@ public static class AchievementService
         }
 
         var progress = (int)newBase;
+
+        /* BEGIN ACHIEVEMENT SERVER FIRSTS: live skill crossing records candidates and claims the current first */
+        RecordServerFirstSkillMilestone(player, skill, oldBase, newBase);
+        /* END ACHIEVEMENT SERVER FIRSTS */
+
+        /* BEGIN ACHIEVEMENT ACCOUNT SKILL MASTERY: account-wide unique GM skill tracking */
+        RecordAccountGrandmasterSkill(player, skill, oldBase, newBase);
+        /* END ACHIEVEMENT ACCOUNT SKILL MASTERY */
 
         foreach (var definition in _definitions.Values)
         {
@@ -228,7 +522,7 @@ public static class AchievementService
         {
             if (
                 definition.TriggerType != AchievementTriggerType.CreatureKillCount ||
-                !string.Equals(definition.CreatureTypeName, creatureTypeName, StringComparison.OrdinalIgnoreCase)
+                !MatchesCreatureKillDefinition(definition, creatureTypeName)
             )
             {
                 continue;
@@ -370,6 +664,70 @@ public static class AchievementService
             }
         }
     }
+
+    public static void RecordTreasureMapCompleted(Mobile from)
+    {
+        if (from is not PlayerMobile player || !ShouldTrackPlayer(player) || !IsSystemEnabled())
+        {
+            return;
+        }
+
+        foreach (var definition in _definitions.Values)
+        {
+            if (
+                definition.TriggerType != AchievementTriggerType.TreasureMapCompletionCount ||
+                !IsAchievementEarnable(definition)
+            )
+            {
+                continue;
+            }
+
+            var state = GetOrCreateProgressState(player, definition);
+            var progress = GetProgressValue(state, definition.Id) + 1;
+            UpdateProgressValue(state, definition.Id, progress);
+
+            if (progress >= definition.Threshold)
+            {
+                UnlockAchievement(player, state, definition);
+            }
+        }
+    }
+
+    /* BEGIN ACHIEVEMENT MISSION TRACKING: mission-system hooks record daily and weekly completion counts separately */
+    public static void RecordMissionCompleted(Mobile from, AchievementMissionCadence cadence)
+    {
+        if (
+            from is not PlayerMobile player ||
+            !ShouldTrackPlayer(player) ||
+            !IsSystemEnabled() ||
+            !IsMissionTrackingEnabled()
+        )
+        {
+            return;
+        }
+
+        foreach (var definition in _definitions.Values)
+        {
+            if (
+                definition.TriggerType != AchievementTriggerType.MissionCompletionCount ||
+                definition.MissionCadence != cadence ||
+                !IsAchievementEarnable(definition)
+            )
+            {
+                continue;
+            }
+
+            var state = GetOrCreateProgressState(player, definition);
+            var progress = GetProgressValue(state, definition.Id) + 1;
+            UpdateProgressValue(state, definition.Id, progress);
+
+            if (progress >= definition.Threshold)
+            {
+                UnlockAchievement(player, state, definition);
+            }
+        }
+    }
+    /* END ACHIEVEMENT MISSION TRACKING */
     /* END ACHIEVEMENT SYSTEM CUSTOMIZATION */
 
     public static void ResetPlayer(PlayerMobile player)
@@ -394,34 +752,55 @@ public static class AchievementService
         _accounts.Clear();
         _pendingNotifications.Clear();
         _activeNotifications.Clear();
+        _serverFirsts.Clear();
+        _serverFirstCandidates.Clear();
     }
 
     /* BEGIN ACHIEVEMENT SYSTEM CUSTOMIZATION: staff pruning removes one achievement from achievement-owned state */
     public static bool TryRemoveAchievement(
+        Mobile staff,
         PlayerMobile player,
         string achievementId,
         out AchievementDefinition definition,
         out bool removedUnlock,
-        out bool removedProgress
+        out bool removedProgress,
+        out string failureReason
     )
     {
         definition = null;
         removedUnlock = false;
         removedProgress = false;
+        failureReason = null;
 
         if (player == null || string.IsNullOrWhiteSpace(achievementId))
         {
+            failureReason = "A player and achievement id are required.";
             return false;
         }
 
         if (!_definitions.TryGetValue(achievementId, out definition))
         {
+            failureReason = $"Unknown achievement id '{achievementId}'.";
+            return false;
+        }
+
+        if (
+            definition.TriggerType == AchievementTriggerType.ServerFirstSkillMilestone &&
+            (staff == null || staff.AccessLevel < AccessLevel.Administrator)
+        )
+        {
+            failureReason = "Only administrators can remove server-first achievements.";
             return false;
         }
 
         var state = GetOrCreateProgressState(player, definition);
         removedUnlock = state.UnlockedAchievements.Remove(definition.Id);
         removedProgress = state.ProgressValues.Remove(definition.Id);
+
+        if (removedUnlock)
+        {
+            RemoveAchievementPointReward(state, definition);
+        }
 
         if (removedUnlock || removedProgress)
         {
@@ -432,9 +811,218 @@ public static class AchievementService
         player.CloseGump<AchievementUnlockGump>();
         player.CloseGump<AchievementGump>();
 
+        if (
+            removedUnlock &&
+            _serverFirsts.TryGetValue(definition.Id, out var serverFirst) &&
+            serverFirst.PlayerSerial == player.Serial.Value
+        )
+        {
+            _serverFirsts.Remove(definition.Id);
+            DisqualifyServerFirstCandidate(serverFirst);
+            TryPromoteNextServerFirst(definition.Id, out _);
+        }
+
         return true;
     }
+
+    /* BEGIN ACHIEVEMENT ADMIN CONTROLS: staff grant support centralizes manual unlock state changes */
+    public static bool TryGrantAchievement(
+        Mobile staff,
+        PlayerMobile player,
+        string achievementId,
+        out AchievementDefinition definition,
+        out string failureReason
+    )
+    {
+        definition = null;
+        failureReason = null;
+
+        if (!IsSystemEnabled())
+        {
+            failureReason = "Achievement system is disabled.";
+            return false;
+        }
+
+        if (player == null || string.IsNullOrWhiteSpace(achievementId))
+        {
+            failureReason = "A player and achievement id are required.";
+            return false;
+        }
+
+        if (!_definitions.TryGetValue(achievementId, out definition))
+        {
+            failureReason = $"Unknown achievement id '{achievementId}'.";
+            return false;
+        }
+
+        if (
+            definition.TriggerType == AchievementTriggerType.ServerFirstSkillMilestone &&
+            (staff == null || staff.AccessLevel < AccessLevel.Administrator)
+        )
+        {
+            failureReason = "Only administrators can grant server-first achievements.";
+            return false;
+        }
+
+        if (IsUnlocked(player, definition.Id))
+        {
+            failureReason = $"{player.Name} already has {definition.Id} ({definition.Name}).";
+            return false;
+        }
+
+        if (definition.TriggerType == AchievementTriggerType.ServerFirstSkillMilestone)
+        {
+            if (_serverFirsts.TryGetValue(definition.Id, out var existingRecord))
+            {
+                failureReason = $"{definition.Id} is already claimed by {existingRecord.PlayerName}.";
+                return false;
+            }
+
+            var timestamp = DateTime.UtcNow;
+            var record = new AchievementServerFirstRecord
+            {
+                AchievementId = definition.Id,
+                PlayerSerial = player.Serial.Value,
+                PlayerName = player.Name,
+                AccountName = player.Account?.Username ?? string.Empty,
+                Skill = definition.Skill,
+                SkillDisplayName = GetSkillDisplayName(definition.Skill),
+                AchievedUtc = timestamp
+            };
+
+            _serverFirsts[definition.Id] = record;
+            AddServerFirstCandidate(record, disqualified: false);
+            UnlockServerFirstRecord(record, definition);
+            TryDisplayNextNotification(player);
+            return true;
+        }
+
+        var state = GetOrCreateProgressState(player, definition);
+        UpdateProgressValue(state, definition.Id, definition.Threshold);
+        UnlockAchievement(player, state, definition);
+
+        if (definition.TriggerType == AchievementTriggerType.ExplorationRegionVisit)
+        {
+            TryUnlockWorldExplorer(player);
+        }
+
+        TryDisplayNextNotification(player);
+        return true;
+    }
+    /* END ACHIEVEMENT ADMIN CONTROLS */
     /* END ACHIEVEMENT SYSTEM CUSTOMIZATION */
+
+    /* BEGIN ACHIEVEMENT SERVER FIRSTS: staff controls and read models for shard-wide first records */
+    public static bool TryResetServerFirst(string achievementId, out AchievementServerFirstRecord removedRecord)
+    {
+        return TryResetServerFirst(achievementId, out removedRecord, out _);
+    }
+
+    public static bool TryResetServerFirst(
+        string achievementId,
+        out AchievementServerFirstRecord removedRecord,
+        out AchievementServerFirstRecord promotedRecord
+    )
+    {
+        removedRecord = null;
+        promotedRecord = null;
+
+        if (string.IsNullOrWhiteSpace(achievementId))
+        {
+            return false;
+        }
+
+        if (!_serverFirsts.TryGetValue(achievementId, out removedRecord))
+        {
+            return false;
+        }
+
+        _serverFirsts.Remove(achievementId);
+        DisqualifyServerFirstCandidate(removedRecord);
+        ClearServerFirstWinnerUnlock(removedRecord);
+        TryPromoteNextServerFirst(achievementId, out promotedRecord);
+        /* BEGIN CUSTOM VIRTUAL ECOLOGY: keep permanent server-first rumor facts aligned with active achievement claims */
+        Server.Custom.Systems.VirtualEcology.TownChatterService.RefreshServerFirstFactsFromAchievements(force: true);
+        /* END CUSTOM VIRTUAL ECOLOGY */
+        return true;
+    }
+
+    public static bool TryResetServerFirstSkill(SkillName skill, out AchievementServerFirstRecord removedRecord)
+    {
+        return TryResetServerFirst(GetServerFirstSkillAchievementId(skill), out removedRecord);
+    }
+
+    public static bool TryResetServerFirstSkill(
+        SkillName skill,
+        out AchievementServerFirstRecord removedRecord,
+        out AchievementServerFirstRecord promotedRecord
+    )
+    {
+        return TryResetServerFirst(GetServerFirstSkillAchievementId(skill), out removedRecord, out promotedRecord);
+    }
+
+    public static List<AchievementServerFirstRecord> GetServerFirstRecords()
+    {
+        var records = new List<AchievementServerFirstRecord>(_serverFirsts.Count);
+
+        foreach (var pair in _serverFirsts)
+        {
+            records.Add(pair.Value);
+        }
+
+        records.Sort(static (a, b) => a.AchievedUtc.CompareTo(b.AchievedUtc));
+        return records;
+    }
+
+    public static AchievementServerFirstRecord GetServerFirstRecord(string achievementId)
+    {
+        return !string.IsNullOrWhiteSpace(achievementId) && _serverFirsts.TryGetValue(achievementId, out var record)
+            ? record
+            : null;
+    }
+
+    public static void ResetServerFirstsForTesting(
+        out int clearedClaims,
+        out int clearedCandidateGroups,
+        out int clearedPlayerEntries
+    )
+    {
+        clearedClaims = _serverFirsts.Count;
+        clearedCandidateGroups = _serverFirstCandidates.Count;
+        clearedPlayerEntries = 0;
+
+        _serverFirsts.Clear();
+        _serverFirstCandidates.Clear();
+
+        foreach (var pair in _players)
+        {
+            var state = pair.Value;
+
+            foreach (var definition in _definitions.Values)
+            {
+                if (definition.TriggerType != AchievementTriggerType.ServerFirstSkillMilestone)
+                {
+                    continue;
+                }
+
+                var removedUnlock = state.UnlockedAchievements.Remove(definition.Id);
+                var removedProgress = state.ProgressValues.Remove(definition.Id);
+
+                if (removedUnlock || removedProgress)
+                {
+                    clearedPlayerEntries++;
+                    state.LastUpdatedUtc = DateTime.UtcNow;
+                }
+            }
+        }
+
+        _pendingNotifications.Clear();
+        _activeNotifications.Clear();
+        /* BEGIN CUSTOM VIRTUAL ECOLOGY: remove cleared testing server-first claims from permanent rumor facts */
+        Server.Custom.Systems.VirtualEcology.TownChatterService.RefreshServerFirstFactsFromAchievements(force: true);
+        /* END CUSTOM VIRTUAL ECOLOGY */
+    }
+    /* END ACHIEVEMENT SERVER FIRSTS */
 
     public static void CompleteActiveNotification(PlayerMobile player, string achievementId, bool openJournal)
     {
@@ -458,7 +1046,7 @@ public static class AchievementService
         if (openJournal)
         {
             player.CloseGump<AchievementUnlockGump>();
-            DisplayAchievementGump(player, GetJournalView(active.Scope, active.Category, active.IsLegacy));
+            DisplayAchievementGump(player, GetJournalView(active));
             return;
         }
 
@@ -494,10 +1082,15 @@ public static class AchievementService
         return view switch
         {
             AchievementJournalView.Overview => "Overview",
-            AchievementJournalView.CharacterSkills => "Character: Skills",
-            AchievementJournalView.CharacterHarvesting => "Character: Harvesting",
+            AchievementJournalView.CharacterSkills => "Skills",
+            AchievementJournalView.CharacterHunting => "Hunting",
+            AchievementJournalView.CharacterExploration => "Exploration",
+            AchievementJournalView.CharacterHarvesting => "Harvesting",
+            AchievementJournalView.CharacterEconomy => "Economy",
+            AchievementJournalView.CharacterMissions => "Misc",
             AchievementJournalView.Account => "Account",
             AchievementJournalView.Legacy => "Legacy",
+            AchievementJournalView.Feats => "Feats",
             _ => "Overview"
         };
     }
@@ -512,6 +1105,7 @@ public static class AchievementService
             AchievementCategory.Crafting => "Crafting",
             AchievementCategory.Exploration => "Exploration",
             AchievementCategory.Economy => "Economy",
+            AchievementCategory.Missions => "Misc",
             _ => "General"
         };
     }
@@ -560,6 +1154,89 @@ public static class AchievementService
         return definitions;
     }
 
+    public static List<AchievementDefinition> GetJournalDefinitions(PlayerMobile player, AchievementJournalView view)
+    {
+        var definitions = GetDefinitions(view);
+
+        if (player == null || definitions.Count <= 1)
+        {
+            return definitions;
+        }
+
+        CollapseTierDefinitions(player, definitions);
+        return definitions;
+    }
+
+    public static List<AchievementDefinition> GetTierMilestones(AchievementDefinition definition)
+    {
+        var milestones = new List<AchievementDefinition>();
+
+        if (definition == null || string.IsNullOrWhiteSpace(definition.TierGroupId))
+        {
+            if (definition != null)
+            {
+                milestones.Add(definition);
+            }
+
+            return milestones;
+        }
+
+        foreach (var candidate in _definitions.Values)
+        {
+            if (string.Equals(candidate.TierGroupId, definition.TierGroupId, StringComparison.OrdinalIgnoreCase))
+            {
+                milestones.Add(candidate);
+            }
+        }
+
+        milestones.Sort(static (a, b) =>
+        {
+            var thresholdCompare = a.Threshold.CompareTo(b.Threshold);
+
+            if (thresholdCompare != 0)
+            {
+                return thresholdCompare;
+            }
+
+            return a.SortOrder.CompareTo(b.SortOrder);
+        });
+
+        return milestones;
+    }
+
+    private static void CollapseTierDefinitions(PlayerMobile player, List<AchievementDefinition> definitions)
+    {
+        var tierIndexes = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+
+        for (var i = 0; i < definitions.Count; i++)
+        {
+            var definition = definitions[i];
+
+            if (string.IsNullOrWhiteSpace(definition.TierGroupId))
+            {
+                continue;
+            }
+
+            if (!tierIndexes.TryGetValue(definition.TierGroupId, out var selectedIndex))
+            {
+                tierIndexes[definition.TierGroupId] = i;
+                continue;
+            }
+
+            var selected = definitions[selectedIndex];
+            var selectedUnlocked = IsUnlocked(player, selected.Id);
+            var currentUnlocked = IsUnlocked(player, definition.Id);
+
+            if (selectedUnlocked || currentUnlocked && definition.Threshold > selected.Threshold)
+            {
+                definitions[selectedIndex] = definition;
+            }
+
+            definitions.RemoveAt(i);
+            i--;
+        }
+    }
+
     public static int GetDefinitionCount(AchievementJournalView view = AchievementJournalView.Overview)
     {
         return GetDefinitions(view).Count;
@@ -585,6 +1262,68 @@ public static class AchievementService
         }
 
         return count;
+    }
+
+    public static List<AchievementAccountSkillProgressEntry> GetAccountGrandmasterSkillProgress(PlayerMobile player)
+    {
+        if (!ShouldTrackPlayer(player))
+        {
+            return new List<AchievementAccountSkillProgressEntry>();
+        }
+
+        RefreshAccountGrandmasterSkills(player);
+
+        var state = GetOrCreateAccountState(player);
+        var entries = new List<AchievementAccountSkillProgressEntry>(_uorSkills.Length);
+
+        for (var i = 0; i < _uorSkills.Length; i++)
+        {
+            var skill = _uorSkills[i];
+            entries.Add(
+                new AchievementAccountSkillProgressEntry
+                {
+                    Skill = skill,
+                    SkillDisplayName = GetSkillDisplayName(skill),
+                    Completed = state.ProgressValues.ContainsKey(GetAccountGrandmasterSkillProgressId(skill))
+                }
+            );
+        }
+
+        entries.Sort(static (a, b) => string.Compare(a.SkillDisplayName, b.SkillDisplayName, StringComparison.OrdinalIgnoreCase));
+        return entries;
+    }
+
+    public static void RecordEconomyGoldEarned(PlayerMobile player, AchievementEconomyGoldSource source, int amount)
+    {
+        if (!ShouldTrackPlayer(player) || amount <= 0 || !IsSystemEnabled())
+        {
+            return;
+        }
+
+        var state = GetOrCreatePlayerState(player);
+        var progressId = GetEconomyGoldProgressId(source);
+        var total = GetProgressValue(state, progressId) + amount;
+
+        UpdateProgressValue(state, progressId, total);
+
+        foreach (var definition in _definitions.Values)
+        {
+            if (
+                definition.TriggerType != AchievementTriggerType.EconomyGoldEarned ||
+                definition.EconomyGoldSource != source ||
+                !IsAchievementEarnable(definition)
+            )
+            {
+                continue;
+            }
+
+            UpdateProgressValue(state, definition.Id, total);
+
+            if (total >= definition.Threshold)
+            {
+                UnlockAchievement(player, state, definition);
+            }
+        }
     }
 
     internal static AchievementPlayerState GetOrCreatePlayerState(PlayerMobile player)
@@ -669,7 +1408,55 @@ public static class AchievementService
             return (int)player.Skills[definition.Skill].Base;
         }
 
+        if (definition.TriggerType == AchievementTriggerType.ServerFirstSkillMilestone)
+        {
+            return GetServerFirstSkillProgress(player, definition);
+        }
+
+        if (definition.TriggerType == AchievementTriggerType.AccountUniqueGrandmasterSkills)
+        {
+            return CountAccountGrandmasterSkills(GetOrCreateAccountState(player));
+        }
+
+        if (definition.TriggerType == AchievementTriggerType.ExplorationRegionVisitAll)
+        {
+            return CountUnlockedExplorationVisits(player);
+        }
+
+        if (definition.TriggerType == AchievementTriggerType.EconomyGoldEarned)
+        {
+            return GetProgressValue(state, GetEconomyGoldProgressId(definition.EconomyGoldSource));
+        }
+
         return 0;
+    }
+
+    public static int GetDisplayedTierProgress(PlayerMobile player, IReadOnlyList<AchievementDefinition> milestones)
+    {
+        if (player == null || milestones == null || milestones.Count == 0)
+        {
+            return 0;
+        }
+
+        var progress = 0;
+
+        for (var i = 0; i < milestones.Count; i++)
+        {
+            var milestone = milestones[i];
+            var milestoneProgress = GetDisplayedProgress(player, milestone);
+
+            if (IsUnlocked(player, milestone.Id) && milestone.Threshold > milestoneProgress)
+            {
+                milestoneProgress = milestone.Threshold;
+            }
+
+            if (milestoneProgress > progress)
+            {
+                progress = milestoneProgress;
+            }
+        }
+
+        return progress;
     }
 
     internal static bool IsUnlocked(PlayerMobile player, string achievementId)
@@ -722,22 +1509,7 @@ public static class AchievementService
             writer.Write(state.FirstSeenUtc);
             writer.Write(state.LastUpdatedUtc);
 
-            writer.WriteEncodedInt(state.ProgressValues.Count);
-
-            foreach (var progressPair in state.ProgressValues)
-            {
-                writer.Write(progressPair.Key);
-                writer.WriteEncodedInt(progressPair.Value);
-            }
-
-            writer.WriteEncodedInt(state.UnlockedAchievements.Count);
-
-            foreach (var unlockPair in state.UnlockedAchievements)
-            {
-                writer.Write(unlockPair.Key);
-                writer.Write(unlockPair.Value.UnlockedUtc);
-            }
-
+            WriteProgressState(writer, state);
         }
 
         writer.WriteEncodedInt(_accounts.Count);
@@ -753,11 +1525,53 @@ public static class AchievementService
 
             WriteProgressState(writer, state);
         }
+
+        /* BEGIN ACHIEVEMENT SERVER FIRSTS: persist global shard-first claims after player/account state */
+        writer.WriteEncodedInt(_serverFirsts.Count);
+
+        foreach (var pair in _serverFirsts)
+        {
+            var record = pair.Value;
+
+            writer.Write(pair.Key);
+            writer.Write(record.AchievementId);
+            writer.Write(record.AchievementName);
+            writer.Write(record.PlayerSerial);
+            writer.Write(record.PlayerName);
+            writer.Write(record.AccountName);
+            writer.Write((int)record.Skill);
+            writer.Write(record.SkillDisplayName);
+            writer.Write(record.AchievedUtc);
+        }
+
+        writer.WriteEncodedInt(_serverFirstCandidates.Count);
+
+        foreach (var pair in _serverFirstCandidates)
+        {
+            writer.Write(pair.Key);
+            writer.WriteEncodedInt(pair.Value.Count);
+
+            for (var i = 0; i < pair.Value.Count; i++)
+            {
+                var candidate = pair.Value[i];
+
+                writer.Write(candidate.AchievementId);
+                writer.Write(candidate.AchievementName);
+                writer.Write(candidate.PlayerSerial);
+                writer.Write(candidate.PlayerName);
+                writer.Write(candidate.AccountName);
+                writer.Write((int)candidate.Skill);
+                writer.Write(candidate.SkillDisplayName);
+                writer.Write(candidate.AchievedUtc);
+                writer.Write(candidate.Disqualified);
+            }
+        }
+        /* END ACHIEVEMENT SERVER FIRSTS */
     }
 
     internal static void DeserializePersistence(IGenericReader reader)
     {
-        DeserializePersistence(reader, 1);
+        DeserializePersistence(reader, 4);
     }
 
     internal static void DeserializePersistence(IGenericReader reader, int version)
@@ -766,6 +1580,8 @@ public static class AchievementService
         _accounts.Clear();
         _pendingNotifications.Clear();
         _activeNotifications.Clear();
+        _serverFirsts.Clear();
+        _serverFirstCandidates.Clear();
 
         var playerCount = reader.ReadEncodedInt();
 
@@ -781,31 +1597,7 @@ public static class AchievementService
                 LastUpdatedUtc = reader.ReadDateTime()
             };
 
-            var progressCount = reader.ReadEncodedInt();
-
-            for (var j = 0; j < progressCount; j++)
-            {
-                var key = reader.ReadString();
-                var value = reader.ReadEncodedInt();
-
-                if (!string.IsNullOrWhiteSpace(key))
-                {
-                    state.ProgressValues[key] = value;
-                }
-            }
-
-            var unlockCount = reader.ReadEncodedInt();
-
-            for (var j = 0; j < unlockCount; j++)
-            {
-                var key = reader.ReadString();
-                var unlockedUtc = reader.ReadDateTime();
-
-                if (!string.IsNullOrWhiteSpace(key))
-                {
-                    state.UnlockedAchievements[key] = new AchievementUnlockRecord { UnlockedUtc = unlockedUtc };
-                }
-            }
+            ReadProgressState(reader, state, version);
 
             _players[serial] = state;
         }
@@ -828,11 +1620,72 @@ public static class AchievementService
                 LastUpdatedUtc = reader.ReadDateTime()
             };
 
-            ReadProgressState(reader, state);
+            ReadProgressState(reader, state, version);
 
             if (!string.IsNullOrWhiteSpace(accountKey))
             {
                 _accounts[accountKey] = state;
+            }
+        }
+
+        if (version <= 1)
+        {
+            return;
+        }
+
+        var serverFirstCount = reader.ReadEncodedInt();
+
+        for (var i = 0; i < serverFirstCount; i++)
+        {
+            var key = reader.ReadString();
+            var record = new AchievementServerFirstRecord
+            {
+                AchievementId = reader.ReadString(),
+                AchievementName = reader.ReadString(),
+                PlayerSerial = reader.ReadUInt(),
+                PlayerName = reader.ReadString(),
+                AccountName = reader.ReadString(),
+                Skill = (SkillName)reader.ReadInt(),
+                SkillDisplayName = reader.ReadString(),
+                AchievedUtc = reader.ReadDateTime()
+            };
+
+            if (!string.IsNullOrWhiteSpace(key) && !string.IsNullOrWhiteSpace(record.AchievementId))
+            {
+                _serverFirsts[key] = record;
+            }
+        }
+
+        if (version <= 2)
+        {
+            foreach (var pair in _serverFirsts)
+            {
+                AddServerFirstCandidate(pair.Value, disqualified: false);
+            }
+
+            return;
+        }
+
+        var candidateGroupCount = reader.ReadEncodedInt();
+
+        for (var i = 0; i < candidateGroupCount; i++)
+        {
+            var achievementId = reader.ReadString();
+            var candidateCount = reader.ReadEncodedInt();
+
+            if (string.IsNullOrWhiteSpace(achievementId))
+            {
+                for (var j = 0; j < candidateCount; j++)
+                {
+                    ReadServerFirstCandidate(reader);
+                }
+
+                continue;
+            }
+
+            for (var j = 0; j < candidateCount; j++)
+            {
+                AddServerFirstCandidate(ReadServerFirstCandidate(reader));
             }
         }
     }
@@ -884,7 +1737,7 @@ public static class AchievementService
             RegisterDefinition(
                 new AchievementDefinition
                 {
-                    Id = $"gm_{skill.ToString().ToLowerInvariant()}",
+                    Id = GetSkillAchievementId(skill),
                     Name = $"Grandmaster {skillDisplayName}",
                     Description = $"Reach 100.0 in {skillDisplayName}.",
                     Category = AchievementCategory.Skills,
@@ -892,15 +1745,317 @@ public static class AchievementService
                     Scope = AchievementScope.Character,
                     IsLegacy = false,
                     Skill = skill,
+                    ItemRewardName = skill == SkillName.AnimalTaming ? "110 Animal Taming Power Scroll" : null,
+                    ItemRewardFactory = skill == SkillName.AnimalTaming
+                        ? static () => new PowerScroll(SkillName.AnimalTaming, 110.0)
+                        : null,
                     Threshold = 100,
                     SortOrder = i
                 }
             );
+
+            /* BEGIN ACHIEVEMENT SERVER FIRSTS: companion shard-first GM skill achievements */
+            RegisterDefinition(
+                new AchievementDefinition
+                {
+                    Id = GetServerFirstSkillAchievementId(skill),
+                    Name = $"Server First: Grandmaster {skillDisplayName}",
+                    Description = $"Be the first player to reach 100.0 in {skillDisplayName}.",
+                    Category = AchievementCategory.Skills,
+                    TriggerType = AchievementTriggerType.ServerFirstSkillMilestone,
+                    Scope = AchievementScope.Character,
+                    IsLegacy = false,
+                    Skill = skill,
+                    Threshold = 100,
+                    SortOrder = 5000 + i
+                }
+            );
+            /* END ACHIEVEMENT SERVER FIRSTS */
         }
 
+        /* BEGIN ACHIEVEMENT ACCOUNT SKILL MASTERY: account-wide all-GM skill achievement */
+        RegisterDefinition(
+            new AchievementDefinition
+            {
+                Id = AccountAllGrandmasterSkillsAchievementId,
+                Name = "Mastery Across Many Lives",
+                Description = "Reach Grandmaster in every unique skill across your account.",
+                Category = AchievementCategory.Skills,
+                TriggerType = AchievementTriggerType.AccountUniqueGrandmasterSkills,
+                Scope = AchievementScope.Account,
+                IsLegacy = false,
+                Threshold = _uorSkills.Length,
+                SortOrder = 10
+            }
+        );
+        /* END ACHIEVEMENT ACCOUNT SKILL MASTERY */
+
+        RegisterCreatureKillDefinitions();
+        RegisterExplorationDefinitions();
         RegisterHarvestDefinitions();
         RegisterFishingDefinitions();
+        RegisterEconomyDefinitions();
+        RegisterMissionDefinitions();
     }
+
+    /* BEGIN ACHIEVEMENT EXPLORATION: first-visit and treasure-map completion definitions */
+    private static void RegisterExplorationDefinitions()
+    {
+        var sortOrder = 900;
+
+        RegisterExplorationVisitDefinitions(
+            _townVisitDefinitions,
+            "First Visit: {0}",
+            "Visit {0} for the first time.",
+            ref sortOrder
+        );
+
+        RegisterExplorationVisitDefinitions(
+            _dungeonVisitDefinitions,
+            "First Descent: {0}",
+            "Enter {0} for the first time.",
+            ref sortOrder
+        );
+
+        RegisterExplorationVisitDefinitions(
+            _shrineVisitDefinitions,
+            "Pilgrimage: {0}",
+            "Visit the {0} for the first time.",
+            ref sortOrder
+        );
+
+        RegisterDefinition(
+            new AchievementDefinition
+            {
+                Id = WorldExplorerAchievementId,
+                Name = "World Explorer",
+                Description = "Visit every tracked town, dungeon, and shrine.",
+                Category = AchievementCategory.Exploration,
+                TriggerType = AchievementTriggerType.ExplorationRegionVisitAll,
+                Scope = AchievementScope.Character,
+                Threshold = GetExplorationVisitDefinitionCount(),
+                SortOrder = sortOrder++
+            }
+        );
+
+        RegisterTreasureMapCompletionDefinitions(ref sortOrder);
+    }
+
+    private static void RegisterExplorationVisitDefinitions(
+        IReadOnlyList<ExplorationVisitDefinition> visits,
+        string nameFormat,
+        string descriptionFormat,
+        ref int sortOrder
+    )
+    {
+        for (var i = 0; i < visits.Count; i++)
+        {
+            var visit = visits[i];
+
+            RegisterDefinition(
+                new AchievementDefinition
+                {
+                    Id = $"visit_{visit.IdSuffix}",
+                    Name = string.Format(nameFormat, visit.RegionName),
+                    Description = string.Format(descriptionFormat, visit.RegionName),
+                    Category = AchievementCategory.Exploration,
+                    TriggerType = AchievementTriggerType.ExplorationRegionVisit,
+                    Scope = AchievementScope.Character,
+                    ExplorationRegionName = visit.RegionName,
+                    Threshold = 1,
+                    SortOrder = sortOrder++
+                }
+            );
+        }
+    }
+
+    private static void RegisterTreasureMapCompletionDefinitions(ref int sortOrder)
+    {
+        for (var i = 0; i < _treasureMapCompletionTierThresholds.Length; i++)
+        {
+            var threshold = _treasureMapCompletionTierThresholds[i];
+
+            RegisterDefinition(
+                new AchievementDefinition
+                {
+                    Id = $"complete_treasure_maps_{threshold}",
+                    Name = $"Treasure Trail {RomanizeTier(i + 1)}",
+                    Description = $"Complete {threshold:N0} treasure map{(threshold == 1 ? string.Empty : "s")}.",
+                    Category = AchievementCategory.Exploration,
+                    TriggerType = AchievementTriggerType.TreasureMapCompletionCount,
+                    Scope = AchievementScope.Character,
+                    TierGroupId = "complete_treasure_maps",
+                    Threshold = threshold,
+                    SortOrder = sortOrder++
+                }
+            );
+        }
+    }
+    /* END ACHIEVEMENT EXPLORATION */
+
+    /* BEGIN ACHIEVEMENT CREATURE KILLS: character kill tier definitions for major monster families */
+    private static void RegisterCreatureKillDefinitions()
+    {
+        var sortOrder = 800;
+
+        RegisterCreatureKillTierDefinitions(
+            "kill_ratmen",
+            "Rat Catcher",
+            "Defeat {0:N0} ratmen.",
+            _ratmanCreatureTypes,
+            _creatureFamilyKillTierThresholds,
+            ref sortOrder
+        );
+
+        RegisterCreatureKillTierDefinitions(
+            "kill_lizardmen",
+            "Scale Breaker",
+            "Defeat {0:N0} lizardmen.",
+            _lizardmanCreatureTypes,
+            _creatureFamilyKillTierThresholds,
+            ref sortOrder
+        );
+
+        RegisterCreatureKillTierDefinitions(
+            "kill_reptiles",
+            "Reptile Hunter",
+            "Defeat {0:N0} reptilian monsters.",
+            _reptileCreatureTypes,
+            _creatureFamilyKillTierThresholds,
+            ref sortOrder
+        );
+
+        RegisterCreatureKillTierDefinitions(
+            "kill_undead",
+            "Grave Warden",
+            "Defeat {0:N0} undead.",
+            _undeadCreatureTypes,
+            _creatureFamilyKillTierThresholds,
+            ref sortOrder
+        );
+
+        RegisterCreatureKillTierDefinitions(
+            "kill_dragons",
+            "Dragon Slayer",
+            "Defeat {0:N0} dragons or wyrms.",
+            _dragonCreatureTypes,
+            _creatureSpecificKillTierThresholds,
+            ref sortOrder
+        );
+
+        RegisterCreatureKillTierDefinitions(
+            "kill_drakes",
+            "Drake Hunter",
+            "Defeat {0:N0} drakes.",
+            _drakeCreatureTypes,
+            _creatureSpecificKillTierThresholds,
+            ref sortOrder
+        );
+
+        RegisterCreatureKillTierDefinitions(
+            "kill_liches",
+            "Lich Hunter",
+            "Defeat {0:N0} liches.",
+            _lichCreatureTypes,
+            _creatureSpecificKillTierThresholds,
+            ref sortOrder
+        );
+
+        RegisterCreatureKillTierDefinitions(
+            "kill_lich_lords",
+            "Lord of Dust",
+            "Defeat {0:N0} lich lords.",
+            _lichLordCreatureTypes,
+            _creatureSpecificKillTierThresholds,
+            ref sortOrder
+        );
+
+        RegisterCreatureKillTierDefinitions(
+            "kill_ancient_liches",
+            "Ancient Silence",
+            "Defeat {0:N0} ancient liches.",
+            _ancientLichCreatureTypes,
+            _creatureEliteKillTierThresholds,
+            ref sortOrder
+        );
+
+        RegisterCreatureKillTierDefinitions(
+            "kill_daemons",
+            "Daemon Bane",
+            "Defeat {0:N0} daemons.",
+            _daemonCreatureTypes,
+            _creatureSpecificKillTierThresholds,
+            ref sortOrder
+        );
+
+        RegisterCreatureKillTierDefinitions(
+            "kill_elementals",
+            "Elemental Breaker",
+            "Defeat {0:N0} elementals.",
+            _elementalCreatureTypes,
+            _creatureFamilyKillTierThresholds,
+            ref sortOrder
+        );
+
+        RegisterCreatureKillTierDefinitions(
+            "kill_orcs",
+            "Orc Foe",
+            "Defeat {0:N0} orcs.",
+            _orcCreatureTypes,
+            _creatureFamilyKillTierThresholds,
+            ref sortOrder
+        );
+
+        RegisterCreatureKillTierDefinitions(
+            "kill_ogres_trolls",
+            "Brute Breaker",
+            "Defeat {0:N0} ogres, trolls, or ettins.",
+            _ogreTrollCreatureTypes,
+            _creatureFamilyKillTierThresholds,
+            ref sortOrder
+        );
+
+        RegisterCreatureKillTierDefinitions(
+            "kill_arachnids",
+            "Web Cutter",
+            "Defeat {0:N0} spiders or terathans.",
+            _arachnidCreatureTypes,
+            _creatureFamilyKillTierThresholds,
+            ref sortOrder
+        );
+    }
+
+    private static void RegisterCreatureKillTierDefinitions(
+        string idPrefix,
+        string namePrefix,
+        string descriptionFormat,
+        string[] creatureTypeNames,
+        IReadOnlyList<int> thresholds,
+        ref int sortOrder
+    )
+    {
+        for (var i = 0; i < thresholds.Count; i++)
+        {
+            var threshold = thresholds[i];
+
+            RegisterDefinition(
+                new AchievementDefinition
+                {
+                    Id = $"{idPrefix}_{threshold}",
+                    Name = $"{namePrefix} {RomanizeTier(i + 1)}",
+                    Description = string.Format(descriptionFormat, threshold),
+                    Category = AchievementCategory.Hunting,
+                    TriggerType = AchievementTriggerType.CreatureKillCount,
+                    Scope = AchievementScope.Character,
+                    TierGroupId = idPrefix,
+                    CreatureTypeNames = creatureTypeNames,
+                    Threshold = threshold,
+                    SortOrder = sortOrder++
+                }
+            );
+        }
+    }
+    /* END ACHIEVEMENT CREATURE KILLS */
 
     private static void RegisterHarvestDefinitions()
     {
@@ -923,6 +2078,7 @@ public static class AchievementService
                         Category = AchievementCategory.Harvesting,
                         TriggerType = AchievementTriggerType.HarvestResourceCount,
                         Scope = AchievementScope.Character,
+                        TierGroupId = $"mine_{ore.Resource.ToString().ToLowerInvariant()}",
                         HarvestKind = AchievementHarvestKind.Mining,
                         Resource = ore.Resource,
                         Threshold = threshold,
@@ -945,6 +2101,7 @@ public static class AchievementService
                     Category = AchievementCategory.Harvesting,
                     TriggerType = AchievementTriggerType.HarvestResourceCount,
                     Scope = AchievementScope.Character,
+                    TierGroupId = "chop_regular_logs",
                     HarvestKind = AchievementHarvestKind.Lumberjacking,
                     Resource = CraftResource.RegularWood,
                     Threshold = threshold,
@@ -971,6 +2128,7 @@ public static class AchievementService
                     Category = AchievementCategory.Harvesting,
                     TriggerType = AchievementTriggerType.FishingCatchCount,
                     Scope = AchievementScope.Character,
+                    TierGroupId = "catch_normal_fish",
                     FishingCatchKind = AchievementFishingCatchKind.NormalFish,
                     Threshold = threshold,
                     SortOrder = sortOrder++
@@ -1054,6 +2212,132 @@ public static class AchievementService
         );
     }
 
+    /* BEGIN ACHIEVEMENT ECONOMY: character gold-earned tier definitions */
+    private static void RegisterEconomyDefinitions()
+    {
+        var sortOrder = 1200;
+
+        RegisterEconomyGoldDefinitions(
+            AchievementEconomyGoldSource.MonsterLoot,
+            "Monster Spoils",
+            "Loot {0:N0} gold from monster corpses.",
+            _monsterGoldTierThresholds,
+            ref sortOrder
+        );
+
+        RegisterEconomyGoldDefinitions(
+            AchievementEconomyGoldSource.TreasureMapChest,
+            "Cartographer's Cut",
+            "Loot {0:N0} gold from treasure map chests.",
+            _treasureMapGoldTierThresholds,
+            ref sortOrder
+        );
+
+        RegisterEconomyGoldDefinitions(
+            AchievementEconomyGoldSource.DungeonChest,
+            "Dungeon Cache",
+            "Loot {0:N0} gold from dungeon treasure chests.",
+            _dungeonChestGoldTierThresholds,
+            ref sortOrder
+        );
+
+        RegisterEconomyGoldDefinitions(
+            AchievementEconomyGoldSource.VendorSale,
+            "Market Returns",
+            "Earn {0:N0} gold by selling items to NPC vendors.",
+            _vendorSaleGoldTierThresholds,
+            ref sortOrder
+        );
+    }
+
+    private static void RegisterEconomyGoldDefinitions(
+        AchievementEconomyGoldSource source,
+        string namePrefix,
+        string descriptionFormat,
+        IReadOnlyList<int> thresholds,
+        ref int sortOrder
+    )
+    {
+        for (var i = 0; i < thresholds.Count; i++)
+        {
+            var threshold = thresholds[i];
+
+            RegisterDefinition(
+                new AchievementDefinition
+                {
+                    Id = GetEconomyGoldAchievementId(source, threshold),
+                    Name = $"{namePrefix} {RomanizeTier(i + 1)}",
+                    Description = string.Format(descriptionFormat, threshold),
+                    Category = AchievementCategory.Economy,
+                    TriggerType = AchievementTriggerType.EconomyGoldEarned,
+                    Scope = AchievementScope.Character,
+                    TierGroupId = GetEconomyGoldProgressId(source),
+                    EconomyGoldSource = source,
+                    Threshold = threshold,
+                    SortOrder = sortOrder++
+                }
+            );
+        }
+    }
+    /* END ACHIEVEMENT ECONOMY */
+
+    /* BEGIN ACHIEVEMENT MISSION TRACKING: separate tier definitions for daily missives and weekly contracts */
+    private static void RegisterMissionDefinitions()
+    {
+        var sortOrder = 1300;
+
+        RegisterMissionCompletionDefinitions(
+            AchievementMissionCadence.Daily,
+            "daily_missions_completed",
+            "Daily Discipline",
+            "Complete {0:N0} daily mission{1}.",
+            _dailyMissionCompletionTierThresholds,
+            ref sortOrder
+        );
+
+        RegisterMissionCompletionDefinitions(
+            AchievementMissionCadence.Weekly,
+            "weekly_missions_completed",
+            "Weekly Contracted",
+            "Complete {0:N0} weekly mission{1}.",
+            _weeklyMissionCompletionTierThresholds,
+            ref sortOrder
+        );
+    }
+
+    private static void RegisterMissionCompletionDefinitions(
+        AchievementMissionCadence cadence,
+        string tierGroupId,
+        string namePrefix,
+        string descriptionFormat,
+        IReadOnlyList<int> thresholds,
+        ref int sortOrder
+    )
+    {
+        for (var i = 0; i < thresholds.Count; i++)
+        {
+            var threshold = thresholds[i];
+            var suffix = threshold == 1 ? string.Empty : "s";
+
+            RegisterDefinition(
+                new AchievementDefinition
+                {
+                    Id = $"{tierGroupId}_{threshold}",
+                    Name = $"{namePrefix} {RomanizeTier(i + 1)}",
+                    Description = string.Format(descriptionFormat, threshold, suffix),
+                    Category = AchievementCategory.Missions,
+                    TriggerType = AchievementTriggerType.MissionCompletionCount,
+                    Scope = AchievementScope.Character,
+                    TierGroupId = tierGroupId,
+                    MissionCadence = cadence,
+                    Threshold = threshold,
+                    SortOrder = sortOrder++
+                }
+            );
+        }
+    }
+    /* END ACHIEVEMENT MISSION TRACKING */
+
     private static void RegisterDefinition(AchievementDefinition definition)
     {
         if (definition == null || string.IsNullOrWhiteSpace(definition.Id))
@@ -1061,8 +2345,68 @@ public static class AchievementService
             return;
         }
 
+        if (!definition.SuppressPointReward && definition.AchievementPoints <= 0)
+        {
+            definition.AchievementPoints = GetDefaultAchievementPointReward(definition);
+        }
+
         _definitions[definition.Id] = definition;
     }
+
+    /* BEGIN ACHIEVEMENT REWARDS: assign a conservative point value when a definition does not override it */
+    private static int GetDefaultAchievementPointReward(AchievementDefinition definition)
+    {
+        if (definition == null || definition.IsLegacy)
+        {
+            return 0;
+        }
+
+        if (definition.TriggerType == AchievementTriggerType.ServerFirstSkillMilestone)
+        {
+            return 100;
+        }
+
+        if (definition.Scope == AchievementScope.Account)
+        {
+            return 50;
+        }
+
+        return string.IsNullOrWhiteSpace(definition.TierGroupId) ? 10 : GetTierAchievementPointReward(definition);
+    }
+
+    private static int GetTierAchievementPointReward(AchievementDefinition definition)
+    {
+        var milestones = new List<int>();
+
+        foreach (var candidate in _definitions.Values)
+        {
+            if (string.Equals(candidate.TierGroupId, definition.TierGroupId, StringComparison.OrdinalIgnoreCase))
+            {
+                milestones.Add(candidate.Threshold);
+            }
+        }
+
+        milestones.Add(definition.Threshold);
+        milestones.Sort();
+
+        for (var i = 0; i < milestones.Count; i++)
+        {
+            if (milestones[i] == definition.Threshold)
+            {
+                return i switch
+                {
+                    0 => 5,
+                    1 => 10,
+                    2 => 15,
+                    3 => 25,
+                    _ => 50
+                };
+            }
+        }
+
+        return 10;
+    }
+    /* END ACHIEVEMENT REWARDS */
 
     private static AchievementDefinition GetDefinition(string achievementId)
     {
@@ -1141,9 +2485,13 @@ public static class AchievementService
         var progress = definition.TriggerType switch
         {
             AchievementTriggerType.SkillMilestone => GetSkillProgress(player, definition),
+            AchievementTriggerType.ServerFirstSkillMilestone => GetServerFirstSkillProgress(player, definition),
+            AchievementTriggerType.AccountUniqueGrandmasterSkills => CountAccountGrandmasterSkills(GetOrCreateAccountState(player)),
+            AchievementTriggerType.EconomyGoldEarned => GetProgressValue(state, GetEconomyGoldProgressId(definition.EconomyGoldSource)),
             AchievementTriggerType.CreatureKillCount => GetProgressValue(state, definition.Id),
             AchievementTriggerType.HarvestResourceCount => GetProgressValue(state, definition.Id),
             AchievementTriggerType.FishingCatchCount => GetProgressValue(state, definition.Id),
+            AchievementTriggerType.MissionCompletionCount => GetProgressValue(state, definition.Id),
             _ => 0
         };
 
@@ -1159,6 +2507,453 @@ public static class AchievementService
     {
         return (int)player.Skills[definition.Skill].Base;
     }
+
+    /* BEGIN ACHIEVEMENT SERVER FIRSTS: claim, unlock, and announce shard-first achievements */
+    private static int GetServerFirstSkillProgress(PlayerMobile player, AchievementDefinition definition)
+    {
+        if (HasServerFirstClaim(definition.Id))
+        {
+            return IsServerFirstWinner(player, definition.Id) ? definition.Threshold : 0;
+        }
+
+        return Math.Min((int)player.Skills[definition.Skill].Base, definition.Threshold - 1);
+    }
+
+    private static void RecordServerFirstSkillMilestone(PlayerMobile player, SkillName skill, double oldBase, double newBase)
+    {
+        if (!IsServerFirstEligiblePlayer(player) || oldBase >= 100.0 || newBase < 100.0)
+        {
+            return;
+        }
+
+        var achievementId = GetServerFirstSkillAchievementId(skill);
+
+        if (!_definitions.TryGetValue(achievementId, out var definition))
+        {
+            return;
+        }
+
+        var timestamp = DateTime.UtcNow;
+        var candidate = new AchievementServerFirstCandidateRecord
+        {
+            AchievementId = definition.Id,
+            AchievementName = definition.Name,
+            PlayerSerial = player.Serial.Value,
+            PlayerName = player.Name,
+            AccountName = player.Account?.Username ?? string.Empty,
+            Skill = skill,
+            SkillDisplayName = GetSkillDisplayName(skill),
+            AchievedUtc = timestamp
+        };
+
+        AddServerFirstCandidate(candidate);
+
+        if (!HasServerFirstClaim(achievementId))
+        {
+            TryPromoteNextServerFirst(achievementId, out _);
+        }
+    }
+
+    private static bool TryPromoteNextServerFirst(string achievementId, out AchievementServerFirstRecord promotedRecord)
+    {
+        promotedRecord = null;
+
+        if (string.IsNullOrWhiteSpace(achievementId) || HasServerFirstClaim(achievementId))
+        {
+            return false;
+        }
+
+        if (!_definitions.TryGetValue(achievementId, out var definition))
+        {
+            return false;
+        }
+
+        SeedServerFirstCandidatesFromAchievementState(definition);
+
+        if (!_serverFirstCandidates.TryGetValue(achievementId, out var candidates) || candidates.Count == 0)
+        {
+            return false;
+        }
+
+        candidates.Sort(static (a, b) =>
+        {
+            var timeCompare = a.AchievedUtc.CompareTo(b.AchievedUtc);
+            return timeCompare != 0 ? timeCompare : a.PlayerSerial.CompareTo(b.PlayerSerial);
+        });
+
+        for (var i = 0; i < candidates.Count; i++)
+        {
+            var candidate = candidates[i];
+
+            if (candidate.Disqualified || !IsServerFirstEligibleCandidate(candidate))
+            {
+                continue;
+            }
+
+            promotedRecord = new AchievementServerFirstRecord
+            {
+                AchievementId = candidate.AchievementId,
+                AchievementName = candidate.AchievementName,
+                PlayerSerial = candidate.PlayerSerial,
+                PlayerName = candidate.PlayerName,
+                AccountName = candidate.AccountName,
+                Skill = candidate.Skill,
+                SkillDisplayName = candidate.SkillDisplayName,
+                AchievedUtc = candidate.AchievedUtc
+            };
+
+            _serverFirsts[achievementId] = promotedRecord;
+            UnlockServerFirstRecord(promotedRecord, definition);
+            /* BEGIN CUSTOM VIRTUAL ECOLOGY: record real shard-first achievements for live NPC rumors */
+            Server.Custom.Systems.VirtualEcology.TownChatterService.RecordServerFirstAchievement(
+                promotedRecord.AchievementId,
+                promotedRecord.PlayerName,
+                promotedRecord.SkillDisplayName
+            );
+            /* END CUSTOM VIRTUAL ECOLOGY */
+            AnnounceServerFirst(promotedRecord);
+            return true;
+        }
+
+        return false;
+    }
+
+    private static void UnlockServerFirstRecord(AchievementServerFirstRecord record, AchievementDefinition definition)
+    {
+        if (!_players.TryGetValue(record.PlayerSerial, out var state))
+        {
+            state = new AchievementPlayerState
+            {
+                PlayerSerial = record.PlayerSerial,
+                PlayerName = record.PlayerName,
+                AccountName = record.AccountName,
+                FirstSeenUtc = record.AchievedUtc,
+                LastUpdatedUtc = record.AchievedUtc
+            };
+
+            _players[record.PlayerSerial] = state;
+        }
+
+        state.PlayerName = record.PlayerName;
+        state.AccountName = record.AccountName;
+        UpdateProgressValue(state, definition.Id, definition.Threshold);
+
+        if (state.UnlockedAchievements.ContainsKey(definition.Id))
+        {
+            return;
+        }
+
+        state.UnlockedAchievements[definition.Id] = new AchievementUnlockRecord { UnlockedUtc = record.AchievedUtc };
+        state.LastUpdatedUtc = DateTime.UtcNow;
+
+        var player = World.FindMobile((Serial)record.PlayerSerial) as PlayerMobile;
+        var rewardText = GrantAchievementPointReward(state, definition);
+
+        if (player != null)
+        {
+            rewardText = CombineRewardText(rewardText, GivePhysicalAchievementReward(player, definition));
+            QueueUnlockNotification(player, definition, rewardText);
+            PlayUnlockEffects(player);
+        }
+
+        Logger.Information(
+            "[AchievementSystem] {PlayerName}/{AccountName} unlocked {AchievementId} at {TimestampUtc:O}.",
+            record.PlayerName,
+            record.AccountName,
+            definition.Id,
+            record.AchievedUtc
+        );
+    }
+
+    private static void AddServerFirstCandidate(AchievementServerFirstRecord record, bool disqualified)
+    {
+        if (record == null)
+        {
+            return;
+        }
+
+        AddServerFirstCandidate(
+            new AchievementServerFirstCandidateRecord
+            {
+                AchievementId = record.AchievementId,
+                AchievementName = record.AchievementName,
+                PlayerSerial = record.PlayerSerial,
+                PlayerName = record.PlayerName,
+                AccountName = record.AccountName,
+                Skill = record.Skill,
+                SkillDisplayName = record.SkillDisplayName,
+                AchievedUtc = record.AchievedUtc,
+                Disqualified = disqualified
+            }
+        );
+    }
+
+    private static void AddServerFirstCandidate(AchievementServerFirstCandidateRecord candidate)
+    {
+        if (candidate == null || string.IsNullOrWhiteSpace(candidate.AchievementId))
+        {
+            return;
+        }
+
+        if (!_serverFirstCandidates.TryGetValue(candidate.AchievementId, out var candidates))
+        {
+            candidates = new List<AchievementServerFirstCandidateRecord>();
+            _serverFirstCandidates[candidate.AchievementId] = candidates;
+        }
+
+        for (var i = 0; i < candidates.Count; i++)
+        {
+            if (candidates[i].PlayerSerial != candidate.PlayerSerial)
+            {
+                continue;
+            }
+
+            candidates[i].PlayerName = candidate.PlayerName;
+            candidates[i].AccountName = candidate.AccountName;
+            candidates[i].SkillDisplayName = candidate.SkillDisplayName;
+            candidates[i].AchievedUtc = candidates[i].AchievedUtc <= candidate.AchievedUtc
+                ? candidates[i].AchievedUtc
+                : candidate.AchievedUtc;
+            return;
+        }
+
+        candidates.Add(candidate);
+    }
+
+    private static void DisqualifyServerFirstCandidate(AchievementServerFirstRecord record)
+    {
+        if (record == null)
+        {
+            return;
+        }
+
+        AddServerFirstCandidate(record, disqualified: true);
+
+        if (!_serverFirstCandidates.TryGetValue(record.AchievementId, out var candidates))
+        {
+            return;
+        }
+
+        for (var i = 0; i < candidates.Count; i++)
+        {
+            if (candidates[i].PlayerSerial == record.PlayerSerial)
+            {
+                candidates[i].Disqualified = true;
+                return;
+            }
+        }
+    }
+
+    private static void SeedServerFirstCandidatesFromAchievementState(AchievementDefinition definition)
+    {
+        var normalSkillAchievementId = GetSkillAchievementId(definition.Skill);
+
+        foreach (var pair in _players)
+        {
+            var state = pair.Value;
+
+            if (!state.UnlockedAchievements.TryGetValue(normalSkillAchievementId, out var unlockRecord))
+            {
+                continue;
+            }
+
+            if (
+                World.FindMobile((Serial)state.PlayerSerial) is PlayerMobile player &&
+                !IsServerFirstEligiblePlayer(player)
+            )
+            {
+                continue;
+            }
+
+            AddServerFirstCandidate(
+                new AchievementServerFirstCandidateRecord
+                {
+                    AchievementId = definition.Id,
+                    AchievementName = definition.Name,
+                    PlayerSerial = state.PlayerSerial,
+                    PlayerName = state.PlayerName,
+                    AccountName = state.AccountName,
+                    Skill = definition.Skill,
+                    SkillDisplayName = GetSkillDisplayName(definition.Skill),
+                    AchievedUtc = unlockRecord.UnlockedUtc
+                }
+            );
+        }
+    }
+
+    private static AchievementServerFirstCandidateRecord ReadServerFirstCandidate(IGenericReader reader)
+    {
+        return new AchievementServerFirstCandidateRecord
+        {
+            AchievementId = reader.ReadString(),
+            AchievementName = reader.ReadString(),
+            PlayerSerial = reader.ReadUInt(),
+            PlayerName = reader.ReadString(),
+            AccountName = reader.ReadString(),
+            Skill = (SkillName)reader.ReadInt(),
+            SkillDisplayName = reader.ReadString(),
+            AchievedUtc = reader.ReadDateTime(),
+            Disqualified = reader.ReadBool()
+        };
+    }
+
+    private static void AnnounceServerFirst(AchievementServerFirstRecord record)
+    {
+        World.Broadcast(
+            0x35,
+            true,
+            $"{record.PlayerName} is the first to reach Grandmaster in {record.SkillDisplayName}!"
+        );
+
+        foreach (var state in NetState.Instances)
+        {
+            if (state?.Mobile is PlayerMobile player && player.NetState != null)
+            {
+                AchievementServerFirstGump.DisplayTo(player, record);
+            }
+        }
+    }
+
+    private static bool HasServerFirstClaim(string achievementId)
+    {
+        return !string.IsNullOrWhiteSpace(achievementId) && _serverFirsts.ContainsKey(achievementId);
+    }
+
+    private static bool IsServerFirstWinner(PlayerMobile player, string achievementId)
+    {
+        return player != null &&
+            !string.IsNullOrWhiteSpace(achievementId) &&
+            _serverFirsts.TryGetValue(achievementId, out var record) &&
+            record.PlayerSerial == player.Serial.Value;
+    }
+
+    private static void ClearServerFirstWinnerUnlock(AchievementServerFirstRecord record)
+    {
+        if (
+            record == null ||
+            string.IsNullOrWhiteSpace(record.AchievementId) ||
+            World.FindMobile((Serial)record.PlayerSerial) is not PlayerMobile player
+        )
+        {
+            return;
+        }
+
+        var state = GetOrCreatePlayerState(player);
+
+        var removedUnlock = state.UnlockedAchievements.Remove(record.AchievementId);
+
+        if (removedUnlock)
+        {
+            RemoveAchievementPointReward(state, GetDefinition(record.AchievementId));
+        }
+
+        if (removedUnlock | state.ProgressValues.Remove(record.AchievementId))
+        {
+            state.LastUpdatedUtc = DateTime.UtcNow;
+        }
+
+        ClearQueuedNotification(player, record.AchievementId);
+        player.CloseGump<AchievementUnlockGump>();
+        player.CloseGump<AchievementGump>();
+    }
+
+    private static string GetServerFirstSkillAchievementId(SkillName skill)
+    {
+        return $"server_first_gm_{skill.ToString().ToLowerInvariant()}";
+    }
+
+    private static string GetSkillAchievementId(SkillName skill)
+    {
+        return $"gm_{skill.ToString().ToLowerInvariant()}";
+    }
+    /* END ACHIEVEMENT SERVER FIRSTS */
+
+    /* BEGIN ACHIEVEMENT ACCOUNT SKILL MASTERY: maintain unique GM skill markers per account */
+    private static void RefreshAccountGrandmasterSkills(PlayerMobile player)
+    {
+        if (!ShouldTrackPlayer(player))
+        {
+            return;
+        }
+
+        for (var i = 0; i < _uorSkills.Length; i++)
+        {
+            var skill = _uorSkills[i];
+
+            if (player.Skills[skill].Base >= 100.0)
+            {
+                RecordAccountGrandmasterSkill(player, skill, 99.9, player.Skills[skill].Base);
+            }
+        }
+    }
+
+    private static void RecordAccountGrandmasterSkill(PlayerMobile player, SkillName skill, double oldBase, double newBase)
+    {
+        if (oldBase >= 100.0 || newBase < 100.0)
+        {
+            return;
+        }
+
+        if (!_definitions.TryGetValue(AccountAllGrandmasterSkillsAchievementId, out var definition))
+        {
+            return;
+        }
+
+        var state = GetOrCreateAccountState(player);
+        var markerId = GetAccountGrandmasterSkillProgressId(skill);
+
+        if (!state.ProgressValues.ContainsKey(markerId))
+        {
+            state.ProgressValues[markerId] = 1;
+            state.LastUpdatedUtc = DateTime.UtcNow;
+        }
+
+        var progress = CountAccountGrandmasterSkills(state);
+        UpdateProgressValue(state, definition.Id, progress);
+
+        if (progress >= definition.Threshold)
+        {
+            UnlockAchievement(player, state, definition);
+        }
+    }
+
+    private static int CountAccountGrandmasterSkills(AchievementAccountState state)
+    {
+        if (state == null)
+        {
+            return 0;
+        }
+
+        var count = 0;
+
+        for (var i = 0; i < _uorSkills.Length; i++)
+        {
+            if (state.ProgressValues.ContainsKey(GetAccountGrandmasterSkillProgressId(_uorSkills[i])))
+            {
+                count++;
+            }
+        }
+
+        return count;
+    }
+
+    private static string GetAccountGrandmasterSkillProgressId(SkillName skill)
+    {
+        return $"{AccountGrandmasterSkillProgressPrefix}{skill.ToString().ToLowerInvariant()}";
+    }
+    /* END ACHIEVEMENT ACCOUNT SKILL MASTERY */
+
+    /* BEGIN ACHIEVEMENT ECONOMY: shared progress keys for source totals */
+    private static string GetEconomyGoldAchievementId(AchievementEconomyGoldSource source, int threshold)
+    {
+        return $"economy_{source.ToString().ToLowerInvariant()}_{threshold}";
+    }
+
+    private static string GetEconomyGoldProgressId(AchievementEconomyGoldSource source)
+    {
+        return $"economy_{source.ToString().ToLowerInvariant()}_total";
+    }
+    /* END ACHIEVEMENT ECONOMY */
 
     private static void UpdateProgressValue(AchievementProgressState state, string achievementId, int progress)
     {
@@ -1186,7 +2981,8 @@ public static class AchievementService
         state.UnlockedAchievements[definition.Id] = new AchievementUnlockRecord { UnlockedUtc = timestamp };
         state.LastUpdatedUtc = timestamp;
 
-        QueueUnlockNotification(player, definition);
+        var rewardText = GrantAchievementRewards(player, state, definition);
+        QueueUnlockNotification(player, definition, rewardText);
         PlayUnlockEffects(player);
 
         Logger.Information(
@@ -1198,7 +2994,136 @@ public static class AchievementService
         );
     }
 
-    private static void QueueUnlockNotification(PlayerMobile player, AchievementDefinition definition)
+    /* BEGIN ACHIEVEMENT REWARDS: grant points and optional physical rewards when a definition unlocks */
+    private static string GrantAchievementRewards(
+        PlayerMobile player,
+        AchievementProgressState state,
+        AchievementDefinition definition
+    )
+    {
+        if (player == null || state == null || definition == null)
+        {
+            return null;
+        }
+
+        return CombineRewardText(
+            GrantAchievementPointReward(state, definition),
+            GivePhysicalAchievementReward(player, definition)
+        );
+    }
+
+    private static string GrantAchievementPointReward(
+        AchievementProgressState state,
+        AchievementDefinition definition
+    )
+    {
+        if (state == null || definition?.AchievementPoints <= 0)
+        {
+            return null;
+        }
+
+        state.AchievementPointsEarned += definition.AchievementPoints;
+        state.LastUpdatedUtc = DateTime.UtcNow;
+        return $"{definition.AchievementPoints:N0} achievement point{(definition.AchievementPoints == 1 ? string.Empty : "s")}";
+    }
+
+    private static string GivePhysicalAchievementReward(PlayerMobile player, AchievementDefinition definition)
+    {
+        if (definition.ItemRewardFactory == null)
+        {
+            return null;
+        }
+
+        Item reward;
+
+        try
+        {
+            reward = definition.ItemRewardFactory();
+        }
+        catch (Exception ex)
+        {
+            Logger.Error(ex, "Failed to create achievement item reward for {AchievementId}", definition.Id);
+            return null;
+        }
+
+        if (reward == null || reward.Deleted)
+        {
+            return null;
+        }
+
+        var rewardName = GetRewardDisplayName(definition, reward);
+
+        if (player.BankBox != null)
+        {
+            player.BankBox.DropItem(reward);
+            return $"{rewardName} sent to your bank box";
+        }
+
+        var loc = player.Location;
+        var map = player.Map;
+
+        if ((map == null || map == Map.Internal) && player.LogoutMap != null)
+        {
+            loc = player.LogoutLocation;
+            map = player.LogoutMap;
+        }
+
+        reward.MoveToWorld(loc, map);
+        return $"{rewardName} placed at your feet";
+    }
+
+    private static string GetRewardDisplayName(AchievementDefinition definition, Item reward)
+    {
+        if (!string.IsNullOrWhiteSpace(definition.ItemRewardName))
+        {
+            return definition.ItemRewardName;
+        }
+
+        if (!string.IsNullOrWhiteSpace(reward.Name))
+        {
+            return reward.Name;
+        }
+
+        return reward.GetType().Name;
+    }
+
+    private static string CombineRewardText(string first, string second)
+    {
+        if (string.IsNullOrWhiteSpace(first))
+        {
+            return second;
+        }
+
+        if (string.IsNullOrWhiteSpace(second))
+        {
+            return first;
+        }
+
+        return $"{first}; {second}";
+    }
+
+    private static int GetAvailableAchievementPoints(AchievementProgressState state)
+    {
+        return Math.Max(0, state.AchievementPointsEarned - state.AchievementPointsSpent);
+    }
+
+    private static void RemoveAchievementPointReward(AchievementProgressState state, AchievementDefinition definition)
+    {
+        if (state == null || definition?.AchievementPoints <= 0)
+        {
+            return;
+        }
+
+        state.AchievementPointsEarned = Math.Max(0, state.AchievementPointsEarned - definition.AchievementPoints);
+
+        if (state.AchievementPointsSpent > state.AchievementPointsEarned)
+        {
+            state.AchievementPointsSpent = state.AchievementPointsEarned;
+        }
+    }
+    /* END ACHIEVEMENT REWARDS */
+
+    private static void QueueUnlockNotification(PlayerMobile player, AchievementDefinition definition, string rewardText)
     {
         if (player?.NetState == null || definition == null)
         {
@@ -1222,7 +3147,8 @@ public static class AchievementService
                 Category = definition.Category,
                 Scope = definition.Scope,
                 IsLegacy = definition.IsLegacy,
-                LegacyLabel = definition.LegacyLabel
+                LegacyLabel = definition.LegacyLabel,
+                RewardText = rewardText
             }
         );
 
@@ -1326,9 +3252,55 @@ public static class AchievementService
         return player is { Deleted: false };
     }
 
+    private static bool IsServerFirstEligiblePlayer(PlayerMobile player)
+    {
+        if (!ShouldTrackPlayer(player))
+        {
+            return false;
+        }
+
+        if (_allowStaffServerFirstsForTesting)
+        {
+            return true;
+        }
+
+        return player.AccessLevel == AccessLevel.Player && GetAccountAccessLevel(player) == AccessLevel.Player;
+    }
+
+    private static bool IsServerFirstEligibleCandidate(AchievementServerFirstCandidateRecord candidate)
+    {
+        if (candidate == null)
+        {
+            return false;
+        }
+
+        if (_allowStaffServerFirstsForTesting)
+        {
+            return true;
+        }
+
+        if (World.FindMobile((Serial)candidate.PlayerSerial) is PlayerMobile player)
+        {
+            return IsServerFirstEligiblePlayer(player);
+        }
+
+        var account = Accounts.GetAccount(candidate.AccountName);
+        return account == null || account.AccessLevel == AccessLevel.Player;
+    }
+
+    private static AccessLevel GetAccountAccessLevel(PlayerMobile player)
+    {
+        return player?.Account?.AccessLevel ?? AccessLevel.Player;
+    }
+
     private static bool MatchesJournalView(AchievementDefinition definition, AchievementJournalView view)
     {
         if (definition == null)
+        {
+            return false;
+        }
+
+        if (definition.TriggerType == AchievementTriggerType.MissionCompletionCount && !IsMissionTrackingEnabled())
         {
             return false;
         }
@@ -1339,22 +3311,251 @@ public static class AchievementService
             AchievementJournalView.CharacterSkills =>
                 definition.Scope == AchievementScope.Character &&
                 definition.Category == AchievementCategory.Skills &&
+                !definition.IsLegacy &&
+                definition.TriggerType != AchievementTriggerType.ServerFirstSkillMilestone,
+            AchievementJournalView.CharacterHunting =>
+                definition.Scope == AchievementScope.Character &&
+                definition.Category == AchievementCategory.Hunting &&
+                !definition.IsLegacy,
+            AchievementJournalView.CharacterExploration =>
+                definition.Scope == AchievementScope.Character &&
+                definition.Category == AchievementCategory.Exploration &&
                 !definition.IsLegacy,
             AchievementJournalView.CharacterHarvesting =>
                 definition.Scope == AchievementScope.Character &&
                 definition.Category == AchievementCategory.Harvesting &&
                 !definition.IsLegacy,
+            AchievementJournalView.CharacterEconomy =>
+                definition.Scope == AchievementScope.Character &&
+                definition.Category == AchievementCategory.Economy &&
+                !definition.IsLegacy,
+            AchievementJournalView.CharacterMissions =>
+                definition.Scope == AchievementScope.Character &&
+                definition.Category == AchievementCategory.Missions &&
+                !definition.IsLegacy &&
+                IsMissionTrackingEnabled(),
             AchievementJournalView.Account => definition.Scope == AchievementScope.Account && !definition.IsLegacy,
             AchievementJournalView.Legacy => definition.IsLegacy,
+            AchievementJournalView.Feats => definition.IsLegacy ||
+                definition.TriggerType == AchievementTriggerType.ServerFirstSkillMilestone,
             _ => false
         };
     }
+
+    /* BEGIN ACHIEVEMENT CREATURE KILLS: match exact configured creature class names without runtime type hierarchy scans */
+    private static bool MatchesCreatureKillDefinition(AchievementDefinition definition, string creatureTypeName)
+    {
+        if (definition == null || string.IsNullOrWhiteSpace(creatureTypeName))
+        {
+            return false;
+        }
+
+        if (string.Equals(definition.CreatureTypeName, creatureTypeName, StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        var creatureTypeNames = definition.CreatureTypeNames;
+
+        if (creatureTypeNames == null)
+        {
+            return false;
+        }
+
+        for (var i = 0; i < creatureTypeNames.Length; i++)
+        {
+            if (string.Equals(creatureTypeNames[i], creatureTypeName, StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+    /* END ACHIEVEMENT CREATURE KILLS */
+
+    /* BEGIN ACHIEVEMENT EXPLORATION: movement hook records first visits to configured major regions */
+    private static void OnMovement(MovementEventArgs args)
+    {
+        if (args.Mobile is not PlayerMobile player || !ShouldTrackPlayer(player) || !IsSystemEnabled())
+        {
+            return;
+        }
+
+        if (!TryGetExplorationRegion(player, out var regionName))
+        {
+            return;
+        }
+
+        var serial = player.Serial.Value;
+
+        if (
+            _lastExplorationRegion.TryGetValue(serial, out var lastRegion) &&
+            string.Equals(lastRegion, regionName, StringComparison.OrdinalIgnoreCase)
+        )
+        {
+            return;
+        }
+
+        _lastExplorationRegion[serial] = regionName;
+        RecordExplorationRegionVisit(player, regionName);
+    }
+
+    private static bool TryGetExplorationRegion(PlayerMobile player, out string regionName)
+    {
+        regionName = null;
+
+        if (player == null)
+        {
+            return false;
+        }
+
+        return TryGetExplorationRegion(player.Region, _townVisitDefinitions, out regionName) ||
+            TryGetExplorationRegion(player.Region, _dungeonVisitDefinitions, out regionName) ||
+            TryGetShrineExplorationRegion(player, out regionName);
+    }
+
+    private static bool TryGetExplorationRegion(
+        Region region,
+        IReadOnlyList<ExplorationVisitDefinition> visits,
+        out string regionName
+    )
+    {
+        regionName = null;
+
+        if (region == null)
+        {
+            return false;
+        }
+
+        for (var i = 0; i < visits.Count; i++)
+        {
+            var visit = visits[i];
+
+            if (region.IsPartOf(visit.RegionName))
+            {
+                regionName = visit.RegionName;
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static bool TryGetShrineExplorationRegion(PlayerMobile player, out string regionName)
+    {
+        regionName = null;
+
+        if (player?.Map != Map.Felucca && player?.Map != Map.Trammel)
+        {
+            return false;
+        }
+
+        for (var i = 0; i < _shrineVisitDefinitions.Length; i++)
+        {
+            var visit = _shrineVisitDefinitions[i];
+
+            if (visit.Location != Point3D.Zero && player.InRange(visit.Location, visit.Range))
+            {
+                regionName = visit.RegionName;
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static void RecordExplorationRegionVisit(PlayerMobile player, string regionName)
+    {
+        if (player == null || string.IsNullOrWhiteSpace(regionName))
+        {
+            return;
+        }
+
+        foreach (var definition in _definitions.Values)
+        {
+            if (
+                definition.TriggerType != AchievementTriggerType.ExplorationRegionVisit ||
+                !string.Equals(definition.ExplorationRegionName, regionName, StringComparison.OrdinalIgnoreCase) ||
+                !IsAchievementEarnable(definition)
+            )
+            {
+                continue;
+            }
+
+            var state = GetOrCreateProgressState(player, definition);
+
+            if (state.UnlockedAchievements.ContainsKey(definition.Id))
+            {
+                return;
+            }
+
+            UpdateProgressValue(state, definition.Id, definition.Threshold);
+            UnlockAchievement(player, state, definition);
+            TryUnlockWorldExplorer(player);
+            return;
+        }
+    }
+
+    private static void TryUnlockWorldExplorer(PlayerMobile player)
+    {
+        if (player == null || !_definitions.TryGetValue(WorldExplorerAchievementId, out var definition))
+        {
+            return;
+        }
+
+        var state = GetOrCreateProgressState(player, definition);
+
+        if (state.UnlockedAchievements.ContainsKey(definition.Id))
+        {
+            return;
+        }
+
+        var progress = CountUnlockedExplorationVisits(player);
+        UpdateProgressValue(state, definition.Id, progress);
+
+        if (progress >= definition.Threshold)
+        {
+            UnlockAchievement(player, state, definition);
+        }
+    }
+
+    private static int CountUnlockedExplorationVisits(PlayerMobile player)
+    {
+        if (player == null)
+        {
+            return 0;
+        }
+
+        var count = 0;
+
+        foreach (var definition in _definitions.Values)
+        {
+            if (definition.TriggerType != AchievementTriggerType.ExplorationRegionVisit)
+            {
+                continue;
+            }
+
+            if (IsUnlocked(player, definition.Id))
+            {
+                count++;
+            }
+        }
+
+        return count;
+    }
+
+    private static int GetExplorationVisitDefinitionCount()
+    {
+        return _townVisitDefinitions.Length + _dungeonVisitDefinitions.Length + _shrineVisitDefinitions.Length;
+    }
+    /* END ACHIEVEMENT EXPLORATION */
 
     private static AchievementJournalView GetJournalView(AchievementScope scope, AchievementCategory category, bool isLegacy)
     {
         if (isLegacy)
         {
-            return AchievementJournalView.Legacy;
+            return AchievementJournalView.Feats;
         }
 
         if (scope == AchievementScope.Account)
@@ -1362,14 +3563,42 @@ public static class AchievementService
             return AchievementJournalView.Account;
         }
 
-        return category == AchievementCategory.Harvesting
-            ? AchievementJournalView.CharacterHarvesting
-            : AchievementJournalView.CharacterSkills;
+        return category switch
+        {
+            AchievementCategory.Hunting => AchievementJournalView.CharacterHunting,
+            AchievementCategory.Exploration => AchievementJournalView.CharacterExploration,
+            AchievementCategory.Harvesting => AchievementJournalView.CharacterHarvesting,
+            AchievementCategory.Economy => AchievementJournalView.CharacterEconomy,
+            AchievementCategory.Missions => AchievementJournalView.CharacterMissions,
+            _ => AchievementJournalView.CharacterSkills
+        };
+    }
+
+    private static AchievementJournalView GetJournalView(AchievementNotificationRecord notification)
+    {
+        if (notification == null)
+        {
+            return AchievementJournalView.Overview;
+        }
+
+        var definition = GetDefinition(notification?.AchievementId);
+
+        if (definition?.TriggerType == AchievementTriggerType.ServerFirstSkillMilestone)
+        {
+            return AchievementJournalView.Feats;
+        }
+
+        return GetJournalView(notification.Scope, notification.Category, notification.IsLegacy);
     }
 
     private static bool IsAchievementEarnable(AchievementDefinition definition)
     {
-        return definition is { IsLegacy: false };
+        if (definition is not { IsLegacy: false })
+        {
+            return false;
+        }
+
+        return definition.TriggerType != AchievementTriggerType.MissionCompletionCount || IsMissionTrackingEnabled();
     }
 
     private static AchievementFishingCatchKind GetFishingCatchKind(Item item)
@@ -1394,6 +3623,8 @@ public static class AchievementService
             3 => "III",
             4 => "IV",
             5 => "V",
+            6 => "VI",
+            7 => "VII",
             _ => tier.ToString()
         };
     }
@@ -1429,6 +3660,9 @@ public static class AchievementService
 
     private static void WriteProgressState(IGenericWriter writer, AchievementProgressState state)
     {
+        writer.WriteEncodedInt(state.AchievementPointsEarned);
+        writer.WriteEncodedInt(state.AchievementPointsSpent);
+
         writer.WriteEncodedInt(state.ProgressValues.Count);
 
         foreach (var progressPair in state.ProgressValues)
@@ -1446,8 +3680,14 @@ public static class AchievementService
         }
     }
 
-    private static void ReadProgressState(IGenericReader reader, AchievementProgressState state)
+    private static void ReadProgressState(IGenericReader reader, AchievementProgressState state, int version)
     {
+        if (version >= 4)
+        {
+            state.AchievementPointsEarned = reader.ReadEncodedInt();
+            state.AchievementPointsSpent = reader.ReadEncodedInt();
+        }
+
         var progressCount = reader.ReadEncodedInt();
 
         for (var j = 0; j < progressCount; j++)
@@ -1480,9 +3720,14 @@ public enum AchievementJournalView
 {
     Overview,
     CharacterSkills,
+    CharacterHunting,
+    CharacterExploration,
     CharacterHarvesting,
+    CharacterEconomy,
+    CharacterMissions,
     Account,
-    Legacy
+    Legacy,
+    Feats
 }
 
 public enum AchievementCategory
@@ -1492,15 +3737,37 @@ public enum AchievementCategory
     Harvesting,
     Crafting,
     Exploration,
-    Economy
+    Economy,
+    Missions
 }
 
 public enum AchievementTriggerType
 {
     SkillMilestone,
+    ServerFirstSkillMilestone,
+    AccountUniqueGrandmasterSkills,
+    EconomyGoldEarned,
+    ExplorationRegionVisit,
+    ExplorationRegionVisitAll,
+    TreasureMapCompletionCount,
     CreatureKillCount,
     HarvestResourceCount,
-    FishingCatchCount
+    FishingCatchCount,
+    MissionCompletionCount
+}
+
+public enum AchievementMissionCadence
+{
+    Daily,
+    Weekly
+}
+
+public enum AchievementEconomyGoldSource
+{
+    MonsterLoot,
+    TreasureMapChest,
+    DungeonChest,
+    VendorSale
 }
 
 public enum AchievementScope
@@ -1538,13 +3805,22 @@ public sealed class AchievementDefinition
     public AchievementScope Scope { get; set; }
     public bool IsLegacy { get; set; }
     public string LegacyLabel { get; set; }
+    public string TierGroupId { get; set; }
     public DateTime? EarnableFromUtc { get; set; }
     public DateTime? EarnableUntilUtc { get; set; }
+    public int AchievementPoints { get; set; }
+    public bool SuppressPointReward { get; set; }
+    public Func<Item> ItemRewardFactory { get; set; }
+    public string ItemRewardName { get; set; }
     public AchievementHarvestKind HarvestKind { get; set; }
     public AchievementFishingCatchKind FishingCatchKind { get; set; }
+    public AchievementEconomyGoldSource EconomyGoldSource { get; set; }
+    public AchievementMissionCadence MissionCadence { get; set; }
     public CraftResource Resource { get; set; }
     public SkillName Skill { get; set; }
+    public string ExplorationRegionName { get; set; }
     public string CreatureTypeName { get; set; }
+    public string[] CreatureTypeNames { get; set; }
     public int Threshold { get; set; }
     public int SortOrder { get; set; }
 }
@@ -1553,6 +3829,8 @@ public class AchievementProgressState
 {
     public DateTime FirstSeenUtc { get; set; }
     public DateTime LastUpdatedUtc { get; set; }
+    public int AchievementPointsEarned { get; set; }
+    public int AchievementPointsSpent { get; set; }
     public Dictionary<string, int> ProgressValues { get; set; } = new(StringComparer.OrdinalIgnoreCase);
     public Dictionary<string, AchievementUnlockRecord> UnlockedAchievements { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 }
@@ -1584,4 +3862,44 @@ public sealed class AchievementNotificationRecord
     public AchievementScope Scope { get; set; }
     public bool IsLegacy { get; set; }
     public string LegacyLabel { get; set; }
+    public string RewardText { get; set; }
 }
+
+public sealed class AchievementAccountSkillProgressEntry
+{
+    public SkillName Skill { get; set; }
+    public string SkillDisplayName { get; set; }
+    public bool Completed { get; set; }
+}
+
+public sealed class AchievementServerFirstRecord
+{
+    public string AchievementId { get; set; }
+    public string AchievementName { get; set; }
+    public uint PlayerSerial { get; set; }
+    public string PlayerName { get; set; }
+    public string AccountName { get; set; }
+    public SkillName Skill { get; set; }
+    public string SkillDisplayName { get; set; }
+    public DateTime AchievedUtc { get; set; }
+}
+
+public sealed class AchievementServerFirstCandidateRecord
+{
+    public string AchievementId { get; set; }
+    public string AchievementName { get; set; }
+    public uint PlayerSerial { get; set; }
+    public string PlayerName { get; set; }
+    public string AccountName { get; set; }
+    public SkillName Skill { get; set; }
+    public string SkillDisplayName { get; set; }
+    public DateTime AchievedUtc { get; set; }
+    public bool Disqualified { get; set; }
+}
+
+public readonly record struct ExplorationVisitDefinition(
+    string IdSuffix,
+    string RegionName,
+    Point3D Location = default,
+    int Range = 0
+);

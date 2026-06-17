@@ -21,7 +21,12 @@ namespace Server.Commands
         {
             CommandSystem.Prefix = ServerConfiguration.GetOrUpdateSetting("commandsystem.prefix", "[");
 
-            Register("Go", AccessLevel.Counselor, Go_OnCommand);
+            /*
+             * Keep the stock Go command implementation available without owning the primary [Go name.
+             * The custom BetterGoCommand registers [Go so staff can use the improved parser while [GoLegacy
+             * remains a direct fallback to ModernUO's original behavior.
+             */
+            Register("GoLegacy", AccessLevel.Counselor, Go_OnCommand);
             Register("DropHolding", AccessLevel.Counselor, DropHolding_OnCommand);
             Register("GetFollowers", AccessLevel.GameMaster, GetFollowers_OnCommand);
             Register("Where", AccessLevel.Counselor, Where_OnCommand);
@@ -365,8 +370,8 @@ namespace Server.Commands
             return validMap;
         }
 
-        [Usage("Go [name | serial | (x y [z]) | (deg min (N | S) deg min (E | W))]")]
-        [Description("With no arguments, this command brings up the go menu. With one argument, (name), you are moved to that regions \"go location.\" Or, if a numerical value is specified for one argument, (serial), you are moved to that object. Two or three arguments, (x y [z]), will move your character to that location. When six arguments are specified, (deg min (N | S) deg min (E | W)), your character will go to an approximate of those sextant coordinates.")]
+        [Usage("GoLegacy [name | serial | (x y [z]) | (deg min (N | S) deg min (E | W))]")]
+        [Description("Runs ModernUO's original go command implementation. With no arguments, this command brings up the go menu. With one argument, (name), you are moved to that regions \"go location.\" Or, if a numerical value is specified for one argument, (serial), you are moved to that object. Two or three arguments, (x y [z]), will move your character to that location. When six arguments are specified, (deg min (N | S) deg min (E | W)), your character will go to an approximate of those sextant coordinates.")]
         private static void Go_OnCommand(CommandEventArgs e)
         {
             var from = e.Mobile;

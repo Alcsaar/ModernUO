@@ -40,19 +40,28 @@ public sealed class AchievementUnlockGump : DynamicGump
 
     protected override void BuildLayout(ref DynamicGumpBuilder builder)
     {
+        var hasReward = !string.IsNullOrWhiteSpace(_notification.RewardText);
+
         builder.AddPage();
-        builder.AddBackground(0, 0, 390, 148, 9270);
-        builder.AddAlphaRegion(15, 15, 360, 118);
+        builder.AddBackground(0, 0, 390, hasReward ? 178 : 148, 9270);
+        builder.AddAlphaRegion(15, 15, 360, hasReward ? 148 : 118);
 
         builder.AddHtml(22, 18, 220, 20, HtmlColor("Achievement Unlocked", "#00FF99"));
         builder.AddHtml(22, 46, 340, 20, HtmlColor(_notification.Name, "#FFFFFF"));
         builder.AddHtml(22, 72, 340, 32, HtmlColor(_notification.Description, "#C0C0C0"));
 
-        builder.AddImageTiled(22, 110, 210, 12, 2624);
-        builder.AddImageTiled(22, 110, 210, 12, 9304);
+        var footerY = hasReward ? 140 : 110;
 
-        builder.AddButton(248, 106, 4005, 4007, ButtonOpenJournal);
-        builder.AddHtml(283, 108, 90, 20, HtmlColor("Open Journal", "#FFFFFF"));
+        if (hasReward)
+        {
+            builder.AddHtml(22, 108, 340, 20, HtmlColor($"Reward: {_notification.RewardText}", "#FFD27F"));
+        }
+
+        builder.AddImageTiled(22, footerY, 210, 12, 2624);
+        builder.AddImageTiled(22, footerY, 210, 12, 9304);
+
+        builder.AddButton(248, footerY - 4, 4005, 4007, ButtonOpenJournal);
+        builder.AddHtml(283, footerY - 2, 90, 20, HtmlColor("Open Journal", "#FFFFFF"));
     }
 
     public override void OnResponse(NetState sender, in RelayInfo info)

@@ -40,6 +40,14 @@ public static class CustomFeatureFlagBootstrap
         );
 
         CustomFeatureFlagManager.Register(
+            CustomFeatureFlagKeys.HarvestingAutomation,
+            "Harvesting Automation",
+            "Automatically repeats mining, lumberjacking, and fishing on the same harvest node",
+            "Custom Systems",
+            defaultEnabled: true
+        );
+
+        CustomFeatureFlagManager.Register(
             CustomFeatureFlagKeys.TravelCodex,
             "Travel Codex",
             "Non-magery codex travel system",
@@ -53,6 +61,30 @@ public static class CustomFeatureFlagBootstrap
             "Player access to supply stones that generate resource bags",
             "Special Systems",
             defaultEnabled: false
+        );
+
+        CustomFeatureFlagManager.Register(
+            CustomFeatureFlagKeys.RareSpawns,
+            "Rare Spawns",
+            "Controls timed rare item spawns in the world",
+            "Custom Systems",
+            defaultEnabled: true
+        );
+
+        CustomFeatureFlagManager.Register(
+            CustomFeatureFlagKeys.MissionSystem,
+            "Mission System",
+            "Daily Missives and Weekly Contracts",
+            "Custom Systems",
+            defaultEnabled: true
+        );
+
+        CustomFeatureFlagManager.Register(
+            CustomFeatureFlagKeys.AIIntegration,
+            "AI Integration",
+            "Staff-controlled Ollama AI integration for custom shard tools",
+            "Custom Systems",
+            defaultEnabled: true
         );
     }
 }

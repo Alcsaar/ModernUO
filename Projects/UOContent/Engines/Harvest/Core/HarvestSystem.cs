@@ -1,4 +1,5 @@
 using System;
+using Server.Custom.Systems.HarvestingAutomation;
 using Server.Items;
 using Server.Targeting;
 
@@ -143,6 +144,9 @@ namespace Server.Engines.Harvest
             // double skillValue = from.Skills[def.Skill].Value;
 
             Type type = null;
+            var deliveredResource = false;
+            var failedHarvestCheck = false;
+            Item deliveredItem = null;
 
             if (skillBase >= resource.ReqSkill && from.CheckSkill(def.Skill, resource.MinSkill, resource.MaxSkill))
             {
@@ -198,6 +202,8 @@ namespace Server.Engines.Harvest
 
                         if (Give(from, item, def.PlaceAtFeetIfFull))
                         {
+                            deliveredResource = true;
+                            deliveredItem = item;
                             SendSuccessTo(from, item, resource);
                         }
                         else
@@ -241,13 +247,29 @@ namespace Server.Engines.Harvest
                     }
                 }
             }
+            else
+            {
+                failedHarvestCheck = true;
+            }
 
             if (type == null)
             {
                 def.SendMessageTo(from, def.FailMessage);
+
+                if (this is Fishing)
+                {
+                    failedHarvestCheck = true;
+                }
             }
 
             OnHarvestFinished(from, tool, def, vein, bank, resource, toHarvest);
+
+            /* BEGIN HARVESTING AUTOMATION CUSTOMIZATION: continue supported harvest skills after success or normal skill failure while the same node remains valid */
+            if (deliveredResource || failedHarvestCheck)
+            {
+                HarvestingAutomationService.TryContinue(from, tool, this, def, toHarvest, deliveredItem, deliveredResource);
+            }
+            /* END HARVESTING AUTOMATION CUSTOMIZATION */
         }
 
         public virtual void OnHarvestFinished(
