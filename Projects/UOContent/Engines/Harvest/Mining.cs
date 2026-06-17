@@ -97,7 +97,8 @@ namespace Server.Engines.Harvest
                 RangedTiles = true,
                 MaxRange = 2,
                 ConsumedPerHarvest = 1,
-                ConsumedPerFeluccaHarvest = 2,
+                // Keep Felucca ore and stone output aligned with the normal harvest amount.
+                ConsumedPerFeluccaHarvest = 1,
                 EffectActions = new[] { 11 },
                 EffectSounds = new[] { 0x125, 0x126 },
                 EffectCounts = new[] { 1 },

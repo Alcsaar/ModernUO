@@ -36,6 +36,8 @@ public static class TownChatterCommands
         CommandSystem.Register("TCDel", AccessLevel.GameMaster, TownChatterDelete_OnCommand);
         CommandSystem.Register("TownChatterClear", AccessLevel.GameMaster, TownChatterClear_OnCommand);
         CommandSystem.Register("TCClear", AccessLevel.GameMaster, TownChatterClear_OnCommand);
+        CommandSystem.Register("TownChatterClearAll", AccessLevel.GameMaster, TownChatterClearAll_OnCommand);
+        CommandSystem.Register("TCClearAll", AccessLevel.GameMaster, TownChatterClearAll_OnCommand);
     }
 
     private static void TownChatterAdmin_OnCommand(CommandEventArgs e)
@@ -56,7 +58,7 @@ public static class TownChatterCommands
         var args = e.ArgString?.Trim();
         if (string.IsNullOrWhiteSpace(args))
         {
-            from.SendMessage("Usage: [TownChatterGenerate <town> [count] [theme]");
+            from.SendMessage("Usage: [TownChatterGenerate <area> [count] [theme]");
             return;
         }
 
@@ -109,13 +111,13 @@ public static class TownChatterCommands
 
         if (string.IsNullOrWhiteSpace(town))
         {
-            from.SendMessage("Usage: [TownChatterPreview <town>");
+            from.SendMessage("Usage: [TownChatterPreview <area>");
             return;
         }
 
         if (!TownChatterService.TryGetCache(town, out var cache))
         {
-            from.SendMessage($"No cached town chatter for {town}.");
+            from.SendMessage($"No cached area chatter for {town}.");
             return;
         }
 
@@ -135,11 +137,11 @@ public static class TownChatterCommands
 
         if (string.IsNullOrWhiteSpace(town))
         {
-            from.SendMessage("Usage: [TownChatterRegenerate <town>");
+            from.SendMessage("Usage: [TownChatterRegenerate <area>");
             return;
         }
 
-        from.SendMessage($"Regenerating cached town chatter for {town}...");
+        from.SendMessage($"Regenerating cached area chatter for {town}...");
 
         var cache = await TownChatterService.RegenerateAsync(town);
 
@@ -174,7 +176,7 @@ public static class TownChatterCommands
         }
 
         count = Math.Clamp(count, 3, TownChatterService.MaxLineCount);
-        from.SendMessage($"Regenerating cached town chatter for {TownChatterService.DefaultTowns.Length} towns...");
+        from.SendMessage($"Regenerating cached area chatter for {TownChatterService.DefaultAreas.Length} areas...");
 
         var caches = await TownChatterService.RegenerateAllAsync(count);
 
@@ -212,7 +214,7 @@ public static class TownChatterCommands
         }
 
         count = Math.Clamp(count, 1, TownChatterService.MaxLineCount);
-        from.SendMessage($"Adding {count} fresh town chatter line(s) to each default town...");
+        from.SendMessage($"Adding {count} fresh chatter line(s) to each default area...");
 
         var caches = await TownChatterService.TopUpAllAsync(count);
 
@@ -244,7 +246,7 @@ public static class TownChatterCommands
         var args = e.ArgString?.Trim();
         if (string.IsNullOrWhiteSpace(args))
         {
-            from.SendMessage("Usage: [TownChatterDynamic <town> [nearby context]");
+            from.SendMessage("Usage: [TownChatterDynamic <area> [nearby context]");
             return;
         }
 
@@ -258,7 +260,7 @@ public static class TownChatterCommands
             nearbyContext = args[(firstSpace + 1)..].Trim();
         }
 
-        from.SendMessage($"Generating dynamic town chatter reaction for {town}...");
+        from.SendMessage($"Generating dynamic chatter reaction for {town}...");
         var line = await TownChatterService.GenerateDynamicReactionAsync(town, nearbyContext);
 
         PostToGameLoop(() =>
@@ -305,14 +307,14 @@ public static class TownChatterCommands
 
         if (string.IsNullOrWhiteSpace(args))
         {
-            from.SendMessage("Usage: [TownChatterDelete <town> <line number>");
+            from.SendMessage("Usage: [TownChatterDelete <area> <line number>");
             return;
         }
 
         var split = args.LastIndexOf(' ');
         if (split <= 0 || !int.TryParse(args[(split + 1)..], out var index))
         {
-            from.SendMessage("Usage: [TownChatterDelete <town> <line number>");
+            from.SendMessage("Usage: [TownChatterDelete <area> <line number>");
             return;
         }
 
@@ -334,20 +336,27 @@ public static class TownChatterCommands
 
         if (string.IsNullOrWhiteSpace(town))
         {
-            from.SendMessage("Usage: [TownChatterClear <town>");
+            from.SendMessage("Usage: [TownChatterClear <area>");
             return;
         }
 
         from.SendMessage(
             TownChatterService.Clear(town)
-                ? $"Cleared cached town chatter for {town}."
-                : $"No cached town chatter for {town}."
+                ? $"Cleared cached area chatter for {town}."
+                : $"No cached area chatter for {town}."
         );
+    }
+
+    private static void TownChatterClearAll_OnCommand(CommandEventArgs e)
+    {
+        var removed = TownChatterService.ClearAll();
+        TownChatterService.RestartAutoTopUpTimer();
+        e.Mobile.SendMessage($"Cleared {removed} cached chatter area(s).");
     }
 
     private static void SendPreview(Mobile from, TownChatterCache cache)
     {
-        from.SendMessage($"{cache.Town} town chatter ({cache.GeneratedAt:g})");
+        from.SendMessage($"{cache.Town} chatter ({cache.GeneratedAt:g})");
 
         for (var i = 0; i < cache.Lines.Count; i++)
         {
