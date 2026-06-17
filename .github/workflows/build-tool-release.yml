@@ -95,7 +95,7 @@ jobs:
           api-token: '${{ secrets.SIGNPATH_API_TOKEN }}'
           organization-id: '${{ secrets.SIGNPATH_ORGANIZATION_ID }}'
           project-slug: 'modernuo'
-          signing-policy-slug: 'test-signing'
+          signing-policy-slug: 'release-signing'
           artifact-configuration-slug: 'build-tool'
           github-artifact-id: '${{ steps.upload-for-signing.outputs.artifact-id }}'
           wait-for-completion: true
@@ -149,7 +149,7 @@ jobs:
           sha256sum build-tool-* > checksums-sha256.txt
 
       - name: Create or update release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: build-tool-latest
           name: Build Tool (Latest)

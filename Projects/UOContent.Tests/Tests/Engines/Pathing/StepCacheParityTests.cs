@@ -1,3 +1,4 @@
+using System;
 using Server.Engines.Pathing.Cache;
 using Xunit;
 using Xunit.Abstractions;
@@ -22,6 +23,7 @@ public class StepCacheParityTests
     {
         var cache = StepCache.Instance;
         cache.Clear();
+        cache.MissPromotionThreshold = 1; // sweep cells expecting cache to answer immediately
 
         var map = Map.Maps[1];
         Assert.NotNull(map);
@@ -31,16 +33,22 @@ public class StepCacheParityTests
         var multiZ = 0;
         var wetCells = 0;
 
+        // The cache anchors each cell at the surface a creature actually STANDS on
+        // (clearance-aware), not the land average. Query at that same standable Z so the
+        // source-Z guard doesn't false-positive (e.g. on a raised causeway or sewer walkway
+        // whose surface sits well above the land). Cells with no standable walk surface are
+        // skipped — there's nothing for a walker to compare against.
+        Span<sbyte> surfZ = stackalloc sbyte[16];
+
         for (var x = xStart; x < xStart + size; x++)
         {
             for (var y = yStart; y < yStart + size; y++)
             {
-                map.GetAverageZ(x, y, out _, out var avgZ, out _);
-
-                // The cache bakes from the slow path's standing Z (the Z a creature actually
-                // stands at on this cell). Query with the same Z so the source-Z guard
-                // doesn't false-positive on every paver cell.
-                var sourceZ = (sbyte)StepProbe.ComputeStandingZ(map, x, y, avgZ);
+                if (StepProbe.ComputeStandableSurfaceZs(map, x, y, surfZ) == 0)
+                {
+                    continue;
+                }
+                var sourceZ = surfZ[0];
 
                 var baker = StepProbe.ComputeMaskAt(map, x, y, sourceZ);
 
@@ -75,10 +83,11 @@ public class StepCacheParityTests
                     wetCells++;
                 }
 
-                if (lookup.WalkZ_N != baker.WalkZ_N || lookup.WalkZ_NE != baker.WalkZ_NE
-                    || lookup.WalkZ_E != baker.WalkZ_E || lookup.WalkZ_SE != baker.WalkZ_SE
-                    || lookup.WalkZ_S != baker.WalkZ_S || lookup.WalkZ_SW != baker.WalkZ_SW
-                    || lookup.WalkZ_W != baker.WalkZ_W || lookup.WalkZ_NW != baker.WalkZ_NW)
+                if (lookup.WalkZ_N != baker.WalkZ_N
+                    || lookup.WalkZ_NE != baker.WalkZ_NE || lookup.WalkZ_E != baker.WalkZ_E
+                    || lookup.WalkZ_SE != baker.WalkZ_SE || lookup.WalkZ_S != baker.WalkZ_S
+                    || lookup.WalkZ_SW != baker.WalkZ_SW || lookup.WalkZ_W != baker.WalkZ_W
+                    || lookup.WalkZ_NW != baker.WalkZ_NW)
                 {
                     disagreements++;
                     _output.WriteLine($"Z DIFF @ ({x},{y}) cache=({lookup.WalkZ_N},{lookup.WalkZ_NE},{lookup.WalkZ_E},{lookup.WalkZ_SE},{lookup.WalkZ_S},{lookup.WalkZ_SW},{lookup.WalkZ_W},{lookup.WalkZ_NW}) baker=({baker.WalkZ_N},{baker.WalkZ_NE},{baker.WalkZ_E},{baker.WalkZ_SE},{baker.WalkZ_S},{baker.WalkZ_SW},{baker.WalkZ_W},{baker.WalkZ_NW})");
