@@ -5,15 +5,14 @@
 ### Virtual Ecology Town Crier Announcements
 
 #### Player-Facing
-- Town criers can now announce recent first Grandmaster skill milestones as in-world news.
-- Server-first style announcements rotate through eligible records and stop after 3 days.
-- Town crier dialogue avoids out-of-character "server first" wording and frames records as realm chronicles or firsts of their craft.
-- Saying "news" near a town crier, or double-clicking one as a player, can surface recent first-achievement news when no normal crier entries are active.
+- Town criers can now share in-world news about notable first Grandmaster achievements.
+- Players may hear recent realm news by speaking to town criers.
 
 #### Dev-Facing
 - Added a Virtual Ecology bridge from `TownChatterService` to `TownCrier` so achievement facts can be presented through the existing town crier shout flow.
 - Added round-robin announcement selection with persisted rotation state in `TownChatter` persistence data version 4.
 - Town criers now keep their auto-shout timer alive while eligible first-achievement announcements remain available.
+- First-achievement announcements expire after 3 days and use in-world phrasing instead of out-of-character server terminology.
 
 #### Config / Admin
 - Existing diagnostics remain available through `[achfirsts` and `[TCFactLine`.
@@ -52,10 +51,8 @@
 ### AI Integration and Virtual Ecology
 
 #### Player-Facing
-- Added Virtual Ecology town chatter that lets town NPCs deliver ambient lines, dynamic reactions, and real server-fact rumors.
-- NPC chatter can reference real player deaths, reported murderers, monster killer types, and server-first Grandmaster achievements.
-- Death rumors are throttled per character so players cannot flood the fact buffer by repeatedly dying.
-- Server-first achievement rumors remain permanent but resync from the achievement system so reset or promoted claims stay truthful.
+- Town NPCs can now share more varied local chatter and react to recent happenings in the world.
+- NPC rumors may mention notable player events, dangerous encounters, and major achievements.
 
 #### Dev-Facing
 - Split reusable backend AI access into `UOContent/Custom/Systems/AIIntegration/`.
@@ -63,6 +60,8 @@
 - Renamed town chatter classes to `TownChatterService`, `TownChatterCommands`, `TownChatterGump`, `TownChatterPersistence`, and `WorldFact`.
 - Added a chatter-pool AI request profile for generating cached ambient lines while keeping factual server-event chatter template-based.
 - Hooked achievement server-first changes and reported murder reports into Virtual Ecology fact tracking.
+- Death rumors are throttled per character so players cannot flood the fact buffer by repeatedly dying.
+- Server-first achievement rumors remain permanent but resync from the achievement system so reset or promoted claims stay truthful.
 
 #### Config / Admin
 - AI backend feature flag: `ai_integration`
@@ -82,13 +81,14 @@
 ### Better Go Command
 
 #### Player-Facing
+- No direct player-facing changes.
+
+#### Dev-Facing
+- Added `BetterGoCommand` under `UOContent/Custom/Systems/BetterGoCommand/`.
 - Replaced `[Go` with a custom staff destination gump that opens directly from the command.
 - Added map filter buttons so staff can browse destinations on other facets without teleporting there first.
 - Expanded Trammel/Felucca town destinations with direct stops for banks first, plus docks, stables, mage shops, and other useful town landmarks.
 - Kept direct `[Go` shortcuts for target, serial, map, region, coordinate, and sextant travel.
-
-#### Dev-Facing
-- Added `BetterGoCommand` under `UOContent/Custom/Systems/BetterGoCommand/`.
 - Preserved ModernUO's stock Go handler as `[GoLegacy]` instead of replacing the old implementation in place.
 - Reuses legacy Go location data for non-town categories while substituting enhanced town data for Britannia towns.
 
@@ -105,10 +105,8 @@
 ### Launch Systems, Missions, Travel, and Rare Spawns
 
 #### Player-Facing
-- Added mission board support with generated daily/weekly style mission content, reward handling, and player progress/status views.
-- Added travel restriction handling so blocked recall, gate, and related travel flows can be managed through the custom system.
-- Added map season override controls for staff-run launch or seasonal presentation changes.
-- Expanded rare spawn support with additional collectible decoration item classes.
+- Added mission board content with player progress and reward handling.
+- Travel, seasonal presentation, and rare collectible systems have expanded support for future live events and shard content.
 
 #### Dev-Facing
 - Added mission system services, models, objectives, rewards, board gumps, persistence, and export support.
@@ -116,6 +114,8 @@
 - Added rare spawn import/export commands for spawn point backup and fresh-server restore workflows.
 - Added TravelCodex location export support.
 - Expanded achievement settings and achievement UI/service support for the new launch and mission workflows.
+- Added travel restriction handling so blocked recall, gate, and related travel flows can be managed through the custom system.
+- Added map season override controls for staff-run launch or seasonal presentation changes.
 
 #### Config / Admin
 - Added admin command surfaces for mission, launch audit, map season override, rare spawn import/export, and travel restriction workflows.
@@ -133,11 +133,9 @@
 
 #### Player-Facing
 - Mining, lumberjacking, and fishing can automatically continue harvesting the same targeted node after a successful harvest.
-- Mining, lumberjacking, and fishing automation also continues after normal failed harvest attempts while the target remains valid and resources remain available.
-- Auto-harvesting stops when the node runs out of resources, the player moves out of range, the target becomes invalid, the tool breaks, the feature flag is disabled, or the player disconnects or dies.
-- Auto-harvesting stops before the player gets too close to their weight limit, using a 15-stone buffer below max weight.
-- Players receive a message when automation stops because a harvest node is depleted.
-- Players receive a message when automation stops to avoid becoming overweight.
+- Automation can continue through ordinary failed harvest attempts while the target remains valid.
+- Auto-harvesting stops when it is no longer safe or useful to continue, such as depleted resources, movement, invalid targets, broken tools, death, disconnects, or heavy packs.
+- Players receive messages when automation stops for depleted resources or weight concerns.
 - Fishing automation stops immediately when a catch spawns a sea-serpent encounter.
 
 #### Dev-Facing
@@ -150,6 +148,7 @@
 - Applies automation to mining, lumberjacking, and fishing while excluding unsupported harvest systems.
 - Preserves fishing SOS behavior by allowing nearby SOS fishing to continue even when the normal fish bank is empty.
 - Stops fishing automation after serpent-trigger catch types: `TreasureMap`, `MessageInABottle`, and `SpecialFishingNet`.
+- Auto-harvesting uses a 15-stone buffer below max weight before stopping for weight safety.
 
 #### Config / Admin
 - Feature flag: `harvesting_automation`
