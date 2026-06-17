@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using Server.Custom.Systems.VirtualEcology;
 using ModernUO.Serialization;
 using Server.Text;
 using Server.Gumps;
@@ -304,6 +305,7 @@ public class TownCrierGump : DynamicGump
 [SerializationGenerator(0, false)]
 public partial class TownCrier : Mobile, ITownCrierEntryList
 {
+    private const double VirtualEcologyServerFirstAnnouncementChance = 0.25;
     private Timer _autoShoutTimer;
     private Timer _newsTimer;
 
@@ -434,8 +436,22 @@ public partial class TownCrier : Mobile, ITownCrierEntryList
     {
         var tce = GetRandomEntry();
 
+        /* BEGIN CUSTOM VIRTUAL ECOLOGY: occasionally rotate recent server-first achievements into town crier news */
+        if (TryGetVirtualEcologyNews(tce == null, out var serverFirstEntry))
+        {
+            tce = serverFirstEntry;
+        }
+        /* END CUSTOM VIRTUAL ECOLOGY */
+
         if (tce == null)
         {
+            /* BEGIN CUSTOM VIRTUAL ECOLOGY: keep crier timers alive while recent server-first news can still roll */
+            if (TownChatterService.HasActiveServerFirstAnnouncements())
+            {
+                return;
+            }
+            /* END CUSTOM VIRTUAL ECOLOGY */
+
             _autoShoutTimer?.Stop();
             _autoShoutTimer = null;
         }
@@ -472,6 +488,21 @@ public partial class TownCrier : Mobile, ITownCrierEntryList
         {
             TownCrierGump.DisplayTo(from, this);
         }
+        /* BEGIN CUSTOM VIRTUAL ECOLOGY: let players hear recent server-first news by double-clicking a crier */
+        else if (_newsTimer == null && from.Alive && InRange(from, 12) && TryGetVirtualEcologyNews(true, out var serverFirstEntry))
+        {
+            Direction = GetDirectionTo(from);
+
+            _newsTimer = Timer.DelayCall(
+                TimeSpan.FromSeconds(1.0),
+                TimeSpan.FromSeconds(3.0),
+                serverFirstEntry.Lines.Length,
+                () => ShoutNews_Callback(serverFirstEntry)
+            );
+
+            PublicOverheadMessage(MessageType.Regular, 0x3B2, 502978); // Some of the latest news!
+        }
+        /* END CUSTOM VIRTUAL ECOLOGY */
         else
         {
             base.OnDoubleClick(from);
@@ -487,6 +518,13 @@ public partial class TownCrier : Mobile, ITownCrierEntryList
             Direction = GetDirectionTo(e.Mobile);
 
             var tce = GetRandomEntry();
+
+            /* BEGIN CUSTOM VIRTUAL ECOLOGY: allow requested news to occasionally include recent server-first records */
+            if (TryGetVirtualEcologyNews(tce == null, out var serverFirstEntry))
+            {
+                tce = serverFirstEntry;
+            }
+            /* END CUSTOM VIRTUAL ECOLOGY */
 
             if (tce == null)
             {
@@ -505,6 +543,26 @@ public partial class TownCrier : Mobile, ITownCrierEntryList
             }
         }
     }
+
+    /* BEGIN CUSTOM VIRTUAL ECOLOGY: prefer server-first news when the crier has no other active entries */
+    private static bool TryGetVirtualEcologyNews(bool required, out TownCrierEntry entry)
+    {
+        entry = null;
+
+        if (!required && Utility.RandomDouble() >= VirtualEcologyServerFirstAnnouncementChance)
+        {
+            return false;
+        }
+
+        if (!TownChatterService.TryGetServerFirstAnnouncement(out var serverFirstLines))
+        {
+            return false;
+        }
+
+        entry = new TownCrierEntry(serverFirstLines, TimeSpan.FromMinutes(2.0));
+        return true;
+    }
+    /* END CUSTOM VIRTUAL ECOLOGY */
 
     public override bool CanBeDamaged() => false;
 

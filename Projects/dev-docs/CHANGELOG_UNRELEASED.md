@@ -1,5 +1,28 @@
 # Unreleased Changes
 
+## Virtual Ecology Town Crier Announcements
+
+### Player-Facing
+- Town criers can now announce recent first Grandmaster skill milestones as in-world news.
+- Server-first style announcements rotate through eligible records and stop after 3 days.
+- Town crier dialogue avoids out-of-character "server first" wording and frames records as realm chronicles or firsts of their craft.
+- Saying "news" near a town crier, or double-clicking one as a player, can surface recent first-achievement news when no normal crier entries are active.
+
+### Dev-Facing
+- Added a Virtual Ecology bridge from `TownChatterService` to `TownCrier` so achievement facts can be presented through the existing town crier shout flow.
+- Added round-robin announcement selection with persisted rotation state in `TownChatter` persistence data version 4.
+- Town criers now keep their auto-shout timer alive while eligible first-achievement announcements remain available.
+
+### Config / Admin
+- Existing diagnostics remain available through `[achfirsts` and `[TCFactLine`.
+- No new feature flag or configuration file was added in this slice.
+
+### Verification
+- `dotnet build Projects\UOContent\UOContent.csproj` passed with 0 warnings and 0 errors.
+
+### Risks / Notes
+- Staff test characters still need staff server-first testing enabled before they can create eligible records.
+
 ## Modular Custom Admin UI
 
 ### Player-Facing
