@@ -2,6 +2,39 @@
 
 ## 2026-06-17
 
+### Virtual Ecology Chatter Controls
+
+#### Player-Facing
+- Town NPCs now use a broader ambient chatter pool that can include local town flavor, approved wilderness references, and occasional rumors about other real Britannian towns.
+- Ambient AI chatter is less likely to repeat the same cached line immediately because used lines now have a configurable reuse cooldown.
+
+#### Dev-Facing
+- Added JSON-backed Virtual Ecology settings with live staff editing from the chatter gump.
+- Added real location/shop/building prompt context and validation defaults through `VirtualEcologyLocations`.
+- Added stricter generated-line filtering for fake proper names, blocked towns/facets, capitalization, and line length.
+- Expanded movement chatter selection to randomize eligible NPC speakers, respect line of sight, and keep real server facts higher priority than AI flavor.
+
+#### Config / Admin
+- New staff settings include cache sizes, generation timing, movement chatter chances, speaker/player cooldowns, line reuse cooldown, and staff trigger behavior.
+- Added clear-all cache actions through the chatter gump and `[TCClearAll`.
+
+#### Verification
+- `dotnet build Projects\UOContent\UOContent.csproj` passed with 0 warnings and 0 errors.
+
+#### Risks / Notes
+- Runtime JSON under `Distribution/Configuration/VirtualEcology/` remains local/generated and is not committed.
+
+### Normal Felucca Harvest Output
+
+#### Player-Facing
+- Felucca mining and lumberjacking now award the normal 1.0x material output instead of the doubled Felucca output.
+
+#### Dev-Facing
+- Set mining `ConsumedPerFeluccaHarvest` to `1` and lumberjacking `ConsumedPerFeluccaHarvest` to `10` to match the normal harvest consumption/output values.
+
+#### Verification
+- `dotnet build Projects\UOContent\UOContent.csproj` passed with 0 warnings and 0 errors.
+
 ### Virtual Ecology Town Crier Announcements
 
 #### Player-Facing

@@ -13,15 +13,15 @@ public static class VirtualEcologyCustomAdminModule
                 "virtual_ecology",
                 "Virtual Ecology",
                 "AI World Flavor",
-                "Open town chatter controls for generated town dialogue caches, rejected lines, recent facts, and AI-backed regeneration actions.",
+                "Open virtual ecology chatter controls for generated area dialogue caches, rejected lines, recent facts, and AI-backed regeneration actions.",
                 AccessLevel.GameMaster,
                 300,
                 from => TownChatterGump.DisplayTo(from),
                 _ => AIIntegrationService.IsEnabled ? "AI enabled" : "AI disabled",
                 _ =>
                 [
-                    $"Cached towns: {TownChatterService.Caches.Count}",
-                    $"Default towns: {TownChatterService.DefaultTowns.Length}",
+                    $"Cached areas: {TownChatterService.Caches.Count}",
+                    $"Default areas: {TownChatterService.DefaultAreas.Length}",
                     $"Recent facts: {TownChatterService.RecentFacts.Count}",
                     $"Auto top-up interval: {TownChatterService.AutoTopUpInterval.TotalMinutes:0} minute(s)"
                 ]

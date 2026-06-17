@@ -37,29 +37,34 @@ public sealed class TownChatterCache
     public DateTime GeneratedAt { get; set; }
     public List<string> Lines { get; } = new();
     public List<string> RejectedLines { get; } = new();
+    public Dictionary<string, DateTime> NextLineUse { get; } = new(StringComparer.Ordinal);
 }
 
 public static class TownChatterService
 {
-    public const int DefaultLineCount = 12;
-    public const int MaxLineCount = 30;
-    public const int AutoTopUpLineCount = 3;
-    public static readonly TimeSpan AutoTopUpInterval = TimeSpan.FromMinutes(10.0);
+    public static int DefaultLineCount => VirtualEcologySettings.DefaultLineCount;
+    public static int MaxLineCount => VirtualEcologySettings.MaxLineCount;
+    public static int AutoTopUpLineCount => VirtualEcologySettings.AutoTopUpLineCount;
+    public static TimeSpan AutoTopUpInterval => VirtualEcologySettings.AutoTopUpInterval;
+    public static TimeSpan CatchUpTopUpInterval => VirtualEcologySettings.CatchUpTopUpInterval;
 
     private static readonly ILogger Logger = LogFactory.GetLogger(typeof(TownChatterService));
-    private const int MaxGenerationAttempts = 3;
-    private const int MaxRejectedLineCount = 30;
-    private const int MaxCachedDialogueLength = 110;
-    private const int MaxDynamicDialogueLength = 95;
-    private const int MaxRecentFactCount = 50;
-    private static readonly TimeSpan PlayerDeathFactMergeWindow = TimeSpan.FromMinutes(10.0);
-    private static readonly TimeSpan PlayerDeathFactCooldown = TimeSpan.FromHours(6.0);
-    private const double MovementCommentChance = 0.02;
-    private static readonly TimeSpan PlayerLiveCommentCooldown = TimeSpan.FromMinutes(2.0);
-    private static readonly TimeSpan NpcLiveCommentCooldown = TimeSpan.FromMinutes(3.0);
-    private static readonly TimeSpan RecentFactMaxAge = TimeSpan.FromHours(6.0);
-    private static readonly TimeSpan ServerFirstAnnouncementMaxAge = TimeSpan.FromDays(3.0);
-    private static readonly TimeSpan ServerFirstFactSyncInterval = TimeSpan.FromMinutes(1.0);
+    private static int MaxGenerationAttempts => VirtualEcologySettings.MaxGenerationAttempts;
+    private static int MaxRejectedLineCount => VirtualEcologySettings.MaxRejectedLineCount;
+    private static int MaxCachedDialogueLength => VirtualEcologySettings.MaxCachedDialogueLength;
+    private static int MaxDynamicDialogueLength => VirtualEcologySettings.MaxDynamicDialogueLength;
+    private static int MaxRecentFactCount => VirtualEcologySettings.MaxRecentFactCount;
+    private static TimeSpan PlayerDeathFactMergeWindow => VirtualEcologySettings.PlayerDeathFactMergeWindow;
+    private static TimeSpan PlayerDeathFactCooldown => VirtualEcologySettings.PlayerDeathFactCooldown;
+    private static double MovementFactCommentChance => VirtualEcologySettings.MovementFactCommentChance;
+    private static double MovementFlavorCommentChance => VirtualEcologySettings.MovementFlavorCommentChance;
+    private static bool AllowStaffMovementTriggers => VirtualEcologySettings.AllowStaffMovementTriggers;
+    private static TimeSpan PlayerLiveCommentCooldown => VirtualEcologySettings.PlayerLiveCommentCooldown;
+    private static TimeSpan NpcLiveCommentCooldown => VirtualEcologySettings.NpcLiveCommentCooldown;
+    private static TimeSpan LineReuseCooldown => VirtualEcologySettings.LineReuseCooldown;
+    private static TimeSpan RecentFactMaxAge => VirtualEcologySettings.RecentFactMaxAge;
+    private static TimeSpan ServerFirstAnnouncementMaxAge => VirtualEcologySettings.ServerFirstAnnouncementMaxAge;
+    private static TimeSpan ServerFirstFactSyncInterval => VirtualEcologySettings.ServerFirstFactSyncInterval;
 
     private static readonly Dictionary<string, TownChatterCache> _caches =
         new(StringComparer.OrdinalIgnoreCase);
@@ -73,60 +78,218 @@ public static class TownChatterService
     private static int _nextServerFirstAnnouncementIndex;
     private static readonly Dictionary<string, Region> _townRegions = new(StringComparer.OrdinalIgnoreCase);
 
+    private static readonly HashSet<string> _approvedProperNames =
+        new(StringComparer.OrdinalIgnoreCase)
+        {
+            "Britain",
+            "Minoc",
+            "Yew",
+            "Moonglow",
+            "Trinsic",
+            "Vesper",
+            "Skara",
+            "Brae",
+            "Jhelom",
+            "Magincia",
+            "Buccaneer's",
+            "Den",
+            "Cove",
+            "Nujel'm",
+            "NuJel'm",
+            "Ocllo",
+            "Serpent's",
+            "Hold",
+            "Wind",
+            "Britannia",
+            "Britannian",
+            "Britainia",
+            "Arena",
+            "Blackthorn",
+            "Blackthorns",
+            "Guild",
+            "Lycaeum",
+            "Sailors",
+            "Wilderness"
+        };
+
+    private static readonly HashSet<string> _properNameSuffixes =
+        new(StringComparer.OrdinalIgnoreCase)
+        {
+            "Bridge",
+            "River",
+            "Road",
+            "Roads",
+            "Forest",
+            "Woods",
+            "Shrine",
+            "Abbey",
+            "Castle",
+            "Bank",
+            "Docks",
+            "Market",
+            "Gate",
+            "Gates",
+            "Harbor",
+            "Harbour",
+            "Canal",
+            "Canals",
+            "Ferry",
+            "Farms",
+            "Court",
+            "Courts",
+            "Library",
+            "Observatory",
+            "Gardens",
+            "Estates"
+        };
+
+    private static readonly HashSet<string> _sentenceStartWords =
+        new(StringComparer.OrdinalIgnoreCase)
+        {
+            "A",
+            "An",
+            "As",
+            "Do",
+            "Don't",
+            "Folks",
+            "Heard",
+            "I",
+            "I've",
+            "If",
+            "My",
+            "No",
+            "Old",
+            "Our",
+            "Some",
+            "Someone",
+            "The",
+            "They",
+            "There",
+            "Those",
+            "Travelers",
+            "Watch",
+            "We",
+            "You"
+        };
+
+    private static readonly HashSet<string> _allowedCapitalizedCommonWords =
+        new(StringComparer.OrdinalIgnoreCase)
+        {
+            "I",
+            "I'd",
+            "I'll",
+            "I'm",
+            "I've"
+        };
+
+    private static readonly HashSet<string> _tradeGoodProperAdjectiveProducts =
+        new(StringComparer.OrdinalIgnoreCase)
+        {
+            "ale",
+            "bread",
+            "cloth",
+            "flour",
+            "mead",
+            "pie",
+            "silk",
+            "tea",
+            "wine",
+            "wool"
+        };
+
+    private static readonly Dictionary<string, string> _displayNames =
+        new(StringComparer.OrdinalIgnoreCase)
+        {
+            ["bucsden"] = "Buccaneer's Den",
+            ["nujelm"] = "Nujel'm",
+            ["serpentshold"] = "Serpent's Hold",
+            ["skara"] = "Skara Brae"
+        };
+
     private static readonly Dictionary<string, string> _defaultThemes =
         new(StringComparer.OrdinalIgnoreCase)
         {
             ["britain"] = "market gossip, guards, merchants, travelers, and daily city life",
+            ["bucsden"] = "pirates, thieves, smugglers, taverns, docks, and lawless island gossip",
+            ["cove"] = "small-town gossip, mountain walls, docks, healers, and rumors near the orc fort",
             ["minoc"] = "miners, ore, smiths, mountain roads, and work songs",
             ["yew"] = "woodsmen, rangers, old trees, courts, and quiet forest paths",
             ["moonglow"] = "scholars, mages, libraries, telescopes, and island rumors",
+            ["nujelm"] = "desert island nobles, jewelers, palaces, docks, and arena talk",
+            ["ocllo"] = "island farms, docks, training yards, healers, and quiet southern roads",
+            ["serpentshold"] = "fortress guards, knights, training yards, docks, and military gossip",
             ["trinsic"] = "paladins, guards, honor, harbor traffic, and training yards",
             ["vesper"] = "bridges, canals, traders, sailors, and dockside talk",
+            ["wind"] = "hidden mage city, arcane shops, underground halls, and scholarly gossip",
             ["skara"] = "rangers, farms, ferries, musicians, and island weather",
             ["jhelom"] = "duelists, fighters, sailors, arenas, and tavern boasts",
-            ["magincia"] = "pride, gardens, nobles, merchants, and polished streets"
+            ["magincia"] = "pride, gardens, nobles, merchants, and polished streets",
+            ["wilderness"] = "roadside camps, forests, ruins, patrols, weather, and wilderness rumors"
         };
 
     private static readonly Dictionary<string, Point3D> _townCenters =
         new(StringComparer.OrdinalIgnoreCase)
         {
             ["britain"] = new Point3D(1495, 1629, 10),
+            ["bucsden"] = new Point3D(2711, 2160, 0),
+            ["cove"] = new Point3D(2228, 1200, 0),
             ["minoc"] = new Point3D(2477, 413, 15),
             ["yew"] = new Point3D(633, 858, 0),
             ["moonglow"] = new Point3D(4442, 1122, 5),
+            ["nujelm"] = new Point3D(3730, 1260, 0),
+            ["ocllo"] = new Point3D(3650, 2520, 0),
+            ["serpentshold"] = new Point3D(3000, 3400, 15),
             ["trinsic"] = new Point3D(1828, 2821, 0),
             ["vesper"] = new Point3D(2899, 676, 0),
+            ["wind"] = new Point3D(5225, 175, 15),
             ["skara"] = new Point3D(576, 2200, 0),
             ["jhelom"] = new Point3D(1378, 3825, 0),
-            ["magincia"] = new Point3D(3728, 2164, 20)
+            ["magincia"] = new Point3D(3728, 2164, 20),
+            ["wilderness"] = new Point3D(1520, 1450, 0)
         };
 
     private static readonly Dictionary<string, string> _townLandmarks =
         new(StringComparer.OrdinalIgnoreCase)
         {
             ["britain"] = "castle, market, bank, docks, farms, guard posts, blacksmith shops, inns",
+            ["bucsden"] = "Cutlass Smithing, Pirate's Plunder, bath house, bank, docks, provisioner",
+            ["cove"] = "watch tower, town gate, bank, docks, healer, nearby orc fort",
             ["minoc"] = "mines, forges, tinkers' shops, mountain roads, gypsy camp, bank",
             ["yew"] = "abbey, courts, farms, wineries, deep woods, ranger paths",
             ["moonglow"] = "lycaeum, mage shops, observatory, telescope, docks, island roads",
+            ["nujelm"] = "palace, arena, bank, jewelers, docks, desert streets",
+            ["ocllo"] = "farms, bank, docks, healers, training yards, island roads",
+            ["serpentshold"] = "fortress, guard posts, training yards, docks, armories",
             ["trinsic"] = "paladin halls, training yards, harbor, guard posts, south gate",
             ["vesper"] = "bridges, canals, docks, provisioners, shipwrights, taverns",
+            ["wind"] = "hidden entrance, mage shops, bank, park, underground halls",
             ["skara"] = "ferry, farms, ranger guild, docks, music hall, sheep fields",
             ["jhelom"] = "dueling pits, fighter halls, docks, taverns, practice yards",
-            ["magincia"] = "gardens, estates, market, docks, bank, polished streets"
+            ["magincia"] = "gardens, estates, market, docks, bank, polished streets",
+            ["wilderness"] = "old roads, campsites, shrines, ruined walls, deep woods, river crossings"
         };
 
-    public static string[] DefaultTowns { get; } =
+    public static string[] DefaultAreas { get; } =
     {
         "britain",
+        "bucsden",
+        "cove",
         "minoc",
         "yew",
         "moonglow",
+        "nujelm",
+        "ocllo",
+        "serpentshold",
         "trinsic",
         "vesper",
+        "wind",
         "skara",
         "jhelom",
-        "magincia"
+        "magincia",
+        "wilderness"
     };
+
+    public static string[] DefaultTowns => DefaultAreas;
 
     private static readonly string[] _forbiddenFragments =
     {
@@ -152,7 +315,11 @@ public static class TownChatterService
         "chivalry",
         "mysticism",
         "certainly",
-        "sure,"
+        "sure,",
+        "felucca",
+        "trammel",
+        "delucia",
+        "papua"
     };
 
     public static IReadOnlyDictionary<string, TownChatterCache> Caches => _caches;
@@ -169,24 +336,33 @@ public static class TownChatterService
 
     public static void Configure()
     {
+        VirtualEcologySettings.Configure();
+        VirtualEcologyLocations.Configure();
+
         if (!_movementHooked)
         {
             EventSink.Movement += OnMovement;
             _movementHooked = true;
         }
 
+        RestartAutoTopUpTimer();
+    }
+
+    public static void RestartAutoTopUpTimer()
+    {
         if (_autoTopUpToken.Running)
         {
-            return;
+            _autoTopUpToken.Cancel();
         }
 
         // Keeps the town chatter pools moving while the AI feature is enabled.
-        Timer.StartTimer(AutoTopUpInterval, AutoTopUpInterval, AutoTopUp_OnTick, out _autoTopUpToken);
+        Timer.StartTimer(GetNextAutoTopUpInterval(), AutoTopUp_OnTick, out _autoTopUpToken);
     }
 
-    public static async ValueTask<TownChatterCache> GenerateAsync(string town, int count = DefaultLineCount, string theme = null)
+    public static async ValueTask<TownChatterCache> GenerateAsync(string town, int count = 0, string theme = null)
     {
         town = NormalizeTown(town);
+        count = count <= 0 ? DefaultLineCount : count;
         count = Math.Clamp(count, 3, MaxLineCount);
 
         if (string.IsNullOrWhiteSpace(theme))
@@ -217,11 +393,12 @@ public static class TownChatterService
 
     public static async ValueTask<TownChatterCache> TopUpAsync(
         string town,
-        int count = AutoTopUpLineCount,
+        int count = 0,
         string theme = null
     )
     {
         town = NormalizeTown(town);
+        count = count <= 0 ? AutoTopUpLineCount : count;
         count = Math.Clamp(count, 1, MaxLineCount);
 
         if (!TryGetCache(town, out var cache))
@@ -259,25 +436,32 @@ public static class TownChatterService
         return GenerateAsync(cache.Town, cache.RequestedCount, cache.Theme);
     }
 
-    public static async ValueTask<List<TownChatterCache>> RegenerateAllAsync(int count = DefaultLineCount)
+    public static async ValueTask<List<TownChatterCache>> RegenerateAllAsync(int count = 0)
     {
-        var caches = new List<TownChatterCache>(DefaultTowns.Length);
+        count = count <= 0 ? DefaultLineCount : count;
+        var caches = new List<TownChatterCache>(DefaultAreas.Length);
 
-        for (var i = 0; i < DefaultTowns.Length; i++)
+        for (var i = 0; i < DefaultAreas.Length; i++)
         {
-            caches.Add(await GenerateAsync(DefaultTowns[i], count));
+            caches.Add(await GenerateAsync(DefaultAreas[i], count));
         }
 
         return caches;
     }
 
-    public static async ValueTask<List<TownChatterCache>> TopUpAllAsync(int count = AutoTopUpLineCount)
+    public static async ValueTask<List<TownChatterCache>> TopUpAllAsync(int count = 0)
     {
-        var caches = new List<TownChatterCache>(DefaultTowns.Length);
+        count = count <= 0 ? AutoTopUpLineCount : count;
+        var caches = new List<TownChatterCache>(DefaultAreas.Length);
 
-        for (var i = 0; i < DefaultTowns.Length; i++)
+        for (var i = 0; i < DefaultAreas.Length; i++)
         {
-            caches.Add(await TopUpAsync(DefaultTowns[i], count));
+            if (TryGetCache(DefaultAreas[i], out var existing) && existing.Lines.Count >= MaxLineCount)
+            {
+                continue;
+            }
+
+            caches.Add(await TopUpAsync(DefaultAreas[i], count));
         }
 
         return caches;
@@ -288,19 +472,19 @@ public static class TownChatterService
         town = NormalizeTown(town);
 
         var prompt =
-            $"Town: {ToDisplayName(town)}\n" +
+            $"Area: {ToDisplayName(town)}\n" +
             BuildWorldContext(town, includePeople: false, includeTransient: true) +
             (!string.IsNullOrWhiteSpace(nearbyContext) ? $"Nearby context: {nearbyContext.Trim()}\n" : string.Empty) +
-            "Generate one short first-person ambient reaction from a town NPC. " +
-            "It may react to the current time, weather, town, nearby shops, or supplied nearby context. " +
+            "Generate one short first-person ambient reaction from a town NPC discussing this area. " +
+            "It may react to the current time, weather, local rumors, nearby shops, or supplied nearby context. " +
             "Do not include the speaker's name, job title, role, or any other personal name. " +
             "Do not write stage directions, narration, or third-person text. " +
-            "Keep it under 95 characters. " +
+            $"Keep it under {MaxDynamicDialogueLength} characters. " +
             "Do not imply a quest, task, reward, delivery, missing person, or player objective. " +
             "Return only the dialogue line, without labels or quote marks.";
 
         var response = await AIIntegrationService.GenerateChatterPoolAsync(prompt);
-        var lines = ParseLines(response, 1);
+        var lines = ParseLines(response, 1, town);
 
         return lines.Accepted.Count > 0
             ? TrimDialogueLine(lines.Accepted[0], MaxDynamicDialogueLength)
@@ -418,7 +602,7 @@ public static class TownChatterService
 
         if (_recentFacts.Count == 0)
         {
-            return "No recent town chatter facts are recorded.";
+            return "No recent chatter facts are recorded.";
         }
 
         var fact = _recentFacts[^1];
@@ -497,7 +681,7 @@ public static class TownChatterService
         PruneOldFacts();
         TrimTransientFacts();
 
-        writer.WriteEncodedInt(4); // data version
+        writer.WriteEncodedInt(5); // data version
         writer.WriteEncodedInt(_caches.Count);
 
         foreach (var entry in _caches)
@@ -511,6 +695,7 @@ public static class TownChatterService
             writer.Write(cache.GeneratedAt);
             WriteStringList(writer, cache.Lines);
             WriteStringList(writer, cache.RejectedLines);
+            WriteLineCooldowns(writer, cache);
         }
 
         writer.WriteEncodedInt(_recentFacts.Count);
@@ -553,6 +738,11 @@ public static class TownChatterService
 
             ReadStringList(reader, cache.Lines, MaxLineCount);
             ReadStringList(reader, cache.RejectedLines, MaxRejectedLineCount);
+
+            if (dataVersion >= 5)
+            {
+                ReadLineCooldowns(reader, cache);
+            }
 
             if (string.IsNullOrWhiteSpace(cache.Town))
             {
@@ -672,12 +862,20 @@ public static class TownChatterService
 
         removedLine = cache.Lines[index - 1];
         cache.Lines.RemoveAt(index - 1);
+        cache.NextLineUse.Remove(removedLine);
         return true;
     }
 
     public static bool Clear(string town)
     {
         return _caches.Remove(NormalizeTown(town));
+    }
+
+    public static int ClearAll()
+    {
+        var count = _caches.Count;
+        _caches.Clear();
+        return count;
     }
 
     public static string NormalizeTown(string town)
@@ -689,7 +887,7 @@ public static class TownChatterService
     {
         return _defaultThemes.TryGetValue(NormalizeTown(town), out var theme)
             ? theme
-            : "local gossip, work, weather, travelers, and daily town life";
+            : "local gossip, work, weather, travelers, and regional rumors";
     }
 
     private static async ValueTask<TownChatterParseResult> GenerateLinesAsync(string town, string theme, int count)
@@ -701,7 +899,7 @@ public static class TownChatterService
             var needed = count - result.Accepted.Count;
             var prompt = BuildPrompt(town, theme, needed, attempt);
             var response = await AIIntegrationService.GenerateChatterPoolAsync(prompt);
-            var lines = ParseLines(response, needed);
+            var lines = ParseLines(response, needed, town);
 
             for (var i = 0; i < lines.Accepted.Count && result.Accepted.Count < count; i++)
             {
@@ -724,9 +922,9 @@ public static class TownChatterService
             : "Previous generated lines were rejected by validation. Be stricter and return only clean ambient dialogue. ";
 
         return
-            $"Town: {ToDisplayName(town)}\n" +
+            $"Area: {ToDisplayName(town)}\n" +
             $"Theme: {theme}\n" +
-            $"Generate {count} ambient NPC chatter lines suitable for wandering townsfolk. " +
+            $"Generate {count} ambient NPC chatter lines suitable for town NPCs discussing this area. " +
             retryText +
             "Use grounded, low-fantasy Ultima Online Renaissance flavor. " +
             "Return only dialogue a town NPC would actually say aloud. " +
@@ -734,12 +932,32 @@ public static class TownChatterService
             "Do not include names, titles, speaker labels, explanations, headers, or quote marks. " +
             "Do not include the speaker's name, job title, role, or any personal names. " +
             "Use first-person or anonymous local gossip only. " +
-            "Keep each line under 110 characters. " +
+            $"Keep each line under {MaxDynamicDialogueLength} characters. " +
             "Rules: mining yields ore, ore is smelted into ingots, and anvils are only used for smithing finished items. " +
             "Lumberjacks cut logs, and boards are made from logs. " +
             "Avoid impossible craft/resource claims, modern terms, post-UOR skills/items, and explicit game mechanics. " +
-            "Do not imply an available quest, task, reward, errand, missing person, repair job, delivery, or player objective.\n" +
-            BuildWorldContext(town, includePeople: false, includeTransient: false);
+            "Do not invent named places, rivers, shrines, ruins, roads, villages, people, or organizations. " +
+            "Only use proper names from the known area, known local details, and allowed rumor destinations. " +
+            "Most lines should be local, but some may be secondhand rumors about another allowed town or wilderness. " +
+            "Cross-town rumors must name the other town and use wording like 'over in Minoc' or 'from Vesper.' " +
+            "Local damage, repairs, shortages, and public works are allowed as rumors. " +
+            "Do not offer the player a task, reward, errand, missing-person search, delivery, or objective. " +
+            GetAreaPromptRules(town) +
+            "\n" +
+            BuildWorldContext(town, includePeople: false, includeTransient: false) +
+            BuildRumorContext(town);
+    }
+
+    private static string GetAreaPromptRules(string town)
+    {
+        town = NormalizeTown(town);
+
+        if (string.Equals(town, "wilderness", StringComparison.OrdinalIgnoreCase))
+        {
+            return "Every wilderness line must clearly mention a known road, woods, wilds, forest, shrine, camp, ruin, dungeon, lair, passage, or other configured wilderness landmark. ";
+        }
+
+        return string.Empty;
     }
 
     private static string BuildWorldContext(string town, bool includePeople, bool includeTransient)
@@ -747,12 +965,14 @@ public static class TownChatterService
         town = NormalizeTown(town);
         var builder = new StringBuilder();
 
-        builder.Append("Known town: ").Append(ToDisplayName(town)).Append('\n');
+        builder.Append("Known area: ").Append(ToDisplayName(town)).Append('\n');
 
         if (_townLandmarks.TryGetValue(town, out var landmarks))
         {
-            builder.Append("Known local places and shops: ").Append(landmarks).Append('\n');
+            builder.Append("Known local details: ").Append(landmarks).Append('\n');
         }
+
+        builder.Append(VirtualEcologyLocations.BuildPromptContext(town));
 
         if (includePeople)
         {
@@ -764,6 +984,48 @@ public static class TownChatterService
             AppendTransientContext(builder, town);
         }
 
+        return builder.ToString();
+    }
+
+    private static string BuildRumorContext(string town)
+    {
+        town = NormalizeTown(town);
+        var builder = new StringBuilder();
+        builder.Append("Allowed rumor destinations: ");
+        var added = 0;
+
+        for (var i = 0; i < DefaultAreas.Length; i++)
+        {
+            var area = DefaultAreas[i];
+
+            if (string.Equals(area, town, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            if (added > 0)
+            {
+                builder.Append("; ");
+            }
+
+            builder.Append(ToDisplayName(area));
+
+            if (_townLandmarks.TryGetValue(area, out var landmarks))
+            {
+                builder.Append(" (").Append(landmarks).Append(')');
+            }
+
+            var locationContext = VirtualEcologyLocations.BuildInlinePromptContext(area);
+            if (!string.IsNullOrWhiteSpace(locationContext))
+            {
+                builder.Append(" [real places: ").Append(locationContext).Append(']');
+            }
+
+            added++;
+        }
+
+        builder.Append(".\n");
+        builder.Append("Example style: I heard the cave veins are running dry over in Minoc.\n");
         return builder.ToString();
     }
 
@@ -910,7 +1172,7 @@ public static class TownChatterService
         return "fair";
     }
 
-    private static TownChatterParseResult ParseLines(string response, int maxLines)
+    private static TownChatterParseResult ParseLines(string response, int maxLines, string area)
     {
         var result = new TownChatterParseResult(maxLines);
 
@@ -938,15 +1200,10 @@ public static class TownChatterService
                 continue;
             }
 
-            if (ShouldReject(line, out var reason))
+            if (ShouldReject(line, area, out var reason))
             {
                 result.Rejected.Add($"{line} ({reason})");
                 continue;
-            }
-
-            if (line.Length > MaxCachedDialogueLength)
-            {
-                line = TrimDialogueLine(line, MaxCachedDialogueLength);
             }
 
             result.Accepted.Add(line);
@@ -1002,7 +1259,27 @@ public static class TownChatterService
 
         line = StripSpeakerPrefix(line);
 
-        return line.Trim().Trim('"', '\'');
+        return CapitalizeDialogueStart(line.Trim().Trim('"', '\''));
+    }
+
+    private static string CapitalizeDialogueStart(string line)
+    {
+        for (var i = 0; i < line.Length; i++)
+        {
+            if (!char.IsLetter(line[i]))
+            {
+                continue;
+            }
+
+            if (!char.IsLower(line[i]))
+            {
+                return line;
+            }
+
+            return line[..i] + char.ToUpperInvariant(line[i]) + line[(i + 1)..];
+        }
+
+        return line;
     }
 
     private static string StripSpeakerPrefix(string line)
@@ -1052,9 +1329,10 @@ public static class TownChatterService
         return $"{line[..trimAt].TrimEnd()}...";
     }
 
-    private static bool ShouldReject(string line, out string reason)
+    private static bool ShouldReject(string line, string area, out string reason)
     {
         reason = null;
+        area = NormalizeTown(area);
 
         if (line.Length < 8)
         {
@@ -1062,9 +1340,9 @@ public static class TownChatterService
             return true;
         }
 
-        if (line.Length > 160)
+        if (line.Length > MaxDynamicDialogueLength)
         {
-            reason = "too long";
+            reason = $"too long for live speech: {line.Length}/{MaxDynamicDialogueLength}";
             return true;
         }
 
@@ -1072,6 +1350,7 @@ public static class TownChatterService
 
         if (padded.StartsWith(" theme:", StringComparison.OrdinalIgnoreCase) ||
             padded.StartsWith(" town:", StringComparison.OrdinalIgnoreCase) ||
+            padded.StartsWith(" area:", StringComparison.OrdinalIgnoreCase) ||
             padded.StartsWith(" generate ", StringComparison.OrdinalIgnoreCase) ||
             padded.StartsWith(" generated ", StringComparison.OrdinalIgnoreCase) ||
             padded.StartsWith(" line ", StringComparison.OrdinalIgnoreCase))
@@ -1089,6 +1368,12 @@ public static class TownChatterService
             }
         }
 
+        if (ContainsUnknownProperName(line, out var unknownName))
+        {
+            reason = $"unknown proper name: {unknownName}";
+            return true;
+        }
+
         if (padded.Contains("ingot", StringComparison.OrdinalIgnoreCase) &&
             padded.Contains("anvil", StringComparison.OrdinalIgnoreCase))
         {
@@ -1103,15 +1388,21 @@ public static class TownChatterService
             return true;
         }
 
-        if ((padded.Contains("help", StringComparison.OrdinalIgnoreCase) ||
-             padded.Contains("repair", StringComparison.OrdinalIgnoreCase) ||
-             padded.Contains("fix", StringComparison.OrdinalIgnoreCase) ||
-             padded.Contains("find", StringComparison.OrdinalIgnoreCase)) &&
-            (padded.Contains("needed", StringComparison.OrdinalIgnoreCase) ||
-             padded.Contains("wanted", StringComparison.OrdinalIgnoreCase) ||
-             padded.Contains("bridge", StringComparison.OrdinalIgnoreCase) ||
-             padded.Contains("reward", StringComparison.OrdinalIgnoreCase) ||
-             padded.Contains("missing", StringComparison.OrdinalIgnoreCase)))
+        if ((padded.Contains(" help ", StringComparison.OrdinalIgnoreCase) ||
+             padded.Contains(" find ", StringComparison.OrdinalIgnoreCase)) &&
+            (padded.Contains(" reward", StringComparison.OrdinalIgnoreCase) ||
+             padded.Contains(" missing ", StringComparison.OrdinalIgnoreCase)))
+        {
+            reason = "implied quest objective";
+            return true;
+        }
+
+        if ((padded.Contains(" deliver", StringComparison.OrdinalIgnoreCase) ||
+             padded.Contains(" delivery ", StringComparison.OrdinalIgnoreCase) ||
+             padded.Contains(" errand", StringComparison.OrdinalIgnoreCase)) &&
+            (padded.Contains(" needed", StringComparison.OrdinalIgnoreCase) ||
+             padded.Contains(" wanted", StringComparison.OrdinalIgnoreCase) ||
+             padded.Contains(" reward", StringComparison.OrdinalIgnoreCase)))
         {
             reason = "implied quest objective";
             return true;
@@ -1133,6 +1424,214 @@ public static class TownChatterService
         }
 
         return ContainsWholeWord(paddedLine, fragment);
+    }
+
+    private static bool ContainsUnknownProperName(string line, out string unknownName)
+    {
+        unknownName = null;
+        var sentenceStart = true;
+
+        for (var i = 0; i < line.Length;)
+        {
+            var value = line[i];
+
+            if (!char.IsLetter(value))
+            {
+                if (value == '.' || value == '!' || value == '?' || value == ';' || value == ':')
+                {
+                    sentenceStart = true;
+                }
+
+                i++;
+                continue;
+            }
+
+            var start = i;
+            while (i < line.Length && (char.IsLetter(line[i]) || line[i] == '\''))
+            {
+                i++;
+            }
+
+            var token = line[start..i];
+            var isCapitalized = char.IsUpper(token[0]) && HasLowercaseLetter(token);
+
+            if (!isCapitalized)
+            {
+                sentenceStart = false;
+                continue;
+            }
+
+            if (_allowedCapitalizedCommonWords.Contains(token))
+            {
+                sentenceStart = false;
+                continue;
+            }
+
+            if (TryConsumeKnownLocationPhrase(line, start, out var locationEnd))
+            {
+                i = locationEnd;
+                sentenceStart = false;
+                continue;
+            }
+
+            if (IsAllowedProperNameToken(token))
+            {
+                sentenceStart = false;
+                continue;
+            }
+
+            if (sentenceStart && _sentenceStartWords.Contains(token))
+            {
+                sentenceStart = false;
+                continue;
+            }
+
+            if (NextTokenIsTradeGoodProduct(line, i))
+            {
+                sentenceStart = false;
+                continue;
+            }
+
+            if (sentenceStart && !NextTokenLooksLikeProperName(line, i))
+            {
+                sentenceStart = false;
+                continue;
+            }
+
+            unknownName = token;
+            return true;
+        }
+
+        return false;
+    }
+
+    private static bool TryConsumeKnownLocationPhrase(string line, int start, out int end)
+    {
+        end = start;
+        var index = start;
+        var builder = new StringBuilder();
+        var bestEnd = -1;
+
+        for (var wordCount = 0; wordCount < 8; wordCount++)
+        {
+            while (index < line.Length && !char.IsLetterOrDigit(line[index]))
+            {
+                if (line[index] is ',' or '.' or '!' or '?' or ';' or ':')
+                {
+                    return bestEnd >= 0 && SetEnd(bestEnd, out end);
+                }
+
+                index++;
+            }
+
+            if (index >= line.Length)
+            {
+                break;
+            }
+
+            var wordStart = index;
+            while (index < line.Length && (char.IsLetterOrDigit(line[index]) || line[index] == '\''))
+            {
+                index++;
+            }
+
+            if (builder.Length > 0)
+            {
+                builder.Append(' ');
+            }
+
+            builder.Append(line, wordStart, index - wordStart);
+
+            if (VirtualEcologyLocations.IsKnownLocationPhrase(builder.ToString()))
+            {
+                bestEnd = index;
+            }
+
+            if (index >= line.Length || line[index] is ',' or '.' or '!' or '?' or ';' or ':')
+            {
+                break;
+            }
+        }
+
+        return bestEnd >= 0 && SetEnd(bestEnd, out end);
+    }
+
+    private static bool SetEnd(int value, out int end)
+    {
+        end = value;
+        return true;
+    }
+
+    private static bool IsAllowedProperNameToken(string token)
+    {
+        token = NormalizeProperToken(token);
+        return _approvedProperNames.Contains(token) || _properNameSuffixes.Contains(token);
+    }
+
+    private static string NormalizeProperToken(string token)
+    {
+        return token.EndsWith("'s", StringComparison.OrdinalIgnoreCase) ? token[..^2] : token;
+    }
+
+    private static bool NextTokenIsTradeGoodProduct(string line, int index)
+    {
+        while (index < line.Length && !char.IsLetter(line[index]))
+        {
+            index++;
+        }
+
+        if (index >= line.Length || !char.IsLower(line[index]))
+        {
+            return false;
+        }
+
+        var start = index;
+        while (index < line.Length && char.IsLetter(line[index]))
+        {
+            index++;
+        }
+
+        return _tradeGoodProperAdjectiveProducts.Contains(line[start..index]);
+    }
+
+    private static bool NextTokenLooksLikeProperName(string line, int index)
+    {
+        while (index < line.Length && !char.IsLetter(line[index]))
+        {
+            index++;
+        }
+
+        if (index >= line.Length)
+        {
+            return false;
+        }
+
+        var start = index;
+        while (index < line.Length && (char.IsLetter(line[index]) || line[index] == '\''))
+        {
+            index++;
+        }
+
+        var token = NormalizeProperToken(line[start..index]);
+        if (_allowedCapitalizedCommonWords.Contains(token))
+        {
+            return false;
+        }
+
+        return char.IsUpper(token[0]) && (HasLowercaseLetter(token) || _properNameSuffixes.Contains(token));
+    }
+
+    private static bool HasLowercaseLetter(string token)
+    {
+        for (var i = 1; i < token.Length; i++)
+        {
+            if (char.IsLower(token[i]))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private static bool ContainsWholeWord(string paddedLine, string word)
@@ -1309,9 +1808,7 @@ public static class TownChatterService
             return;
         }
 
-        RefreshServerFirstFactsFromAchievements();
-
-        if (_recentFacts.Count == 0 || Utility.RandomDouble() > MovementCommentChance)
+        if (player.AccessLevel > AccessLevel.Player && !AllowStaffMovementTriggers)
         {
             return;
         }
@@ -1328,45 +1825,100 @@ public static class TownChatterService
             return;
         }
 
-        var speaker = FindNearbyTownSpeaker(player);
+        var town = GetTownKey(player.Region);
+        var roll = Utility.RandomDouble();
+        var wantsFact = roll < MovementFactCommentChance;
+        var wantsFlavor = !wantsFact && roll < MovementFactCommentChance + MovementFlavorCommentChance;
+
+        if (!wantsFact && !wantsFlavor)
+        {
+            return;
+        }
+
+        var speaker = FindNearbyTownSpeaker(player, now);
 
         if (speaker == null)
         {
             return;
         }
 
-        if (_nextNpcLiveComment.TryGetValue(speaker.Serial, out var npcNext) && npcNext > now)
+        string line = null;
+        WorldFact fact = null;
+
+        // Prioritize real shard facts. Cached AI flavor is intentionally rarer and only fills ambient gaps.
+        if (wantsFact && TrySelectFact(out fact))
         {
-            return;
+            line = BuildFactComment(fact);
+        }
+        else if (wantsFlavor)
+        {
+            TrySelectCachedChatter(town, out line);
         }
 
-        if (!TrySelectFact(out var fact))
+        if (string.IsNullOrWhiteSpace(line))
         {
             return;
         }
 
         _nextPlayerLiveComment[player.Serial] = now + PlayerLiveCommentCooldown;
         _nextNpcLiveComment[speaker.Serial] = now + NpcLiveCommentCooldown;
-        SayLiveFactComment(speaker, fact);
+        SayLiveComment(speaker, line);
     }
 
-    private static Mobile FindNearbyTownSpeaker(PlayerMobile player)
+    private static string GetTownKey(Region region)
     {
+        while (region != null)
+        {
+            if (region is TownRegion && !string.IsNullOrWhiteSpace(region.Name))
+            {
+                return NormalizeTown(region.Name);
+            }
+
+            region = region.Parent;
+        }
+
+        return "britain";
+    }
+
+    private static Mobile FindNearbyTownSpeaker(PlayerMobile player, DateTime now)
+    {
+        Mobile selected = null;
+        var eligibleCount = 0;
+
         foreach (var mobile in player.GetMobilesInRange<Mobile>(4))
         {
             if (mobile?.Deleted != false || mobile.Player || mobile.Hidden || !mobile.Alive ||
-                mobile.AccessLevel > AccessLevel.Player || mobile.Region?.IsPartOf<TownRegion>() != true)
+                mobile.AccessLevel > AccessLevel.Player || mobile.Region?.IsPartOf<TownRegion>() != true ||
+                mobile.Map != player.Map)
             {
                 continue;
             }
 
-            if (mobile is BaseVendor || mobile.Body.IsHuman)
+            if (mobile is not BaseVendor && !mobile.Body.IsHuman)
             {
-                return mobile;
+                continue;
+            }
+
+            if (_nextNpcLiveComment.TryGetValue(mobile.Serial, out var npcNext) && npcNext > now)
+            {
+                continue;
+            }
+
+            // Use map line-of-sight directly so staff testing does not bypass building walls.
+            if (player.Map?.LineOfSight(player, mobile) != true)
+            {
+                continue;
+            }
+
+            // Randomly select from eligible speakers so enumeration order does not make one NPC monopolize chatter.
+            eligibleCount++;
+            if (Utility.Random(eligibleCount) == 0)
+            {
+                selected = mobile;
             }
         }
 
-        return null;
+        return selected;
     }
 
     private static bool TrySelectFact(out WorldFact fact)
@@ -1385,10 +1937,117 @@ public static class TownChatterService
         return fact != null;
     }
 
-    private static void SayLiveFactComment(Mobile speaker, WorldFact fact)
+    private static bool TrySelectCachedChatter(string town, out string line)
     {
-        var line = BuildFactComment(fact);
+        line = null;
 
+        if (!TryGetCache(town, out var cache) || cache.Lines.Count == 0)
+        {
+            return false;
+        }
+
+        var now = Core.Now;
+        PruneLineCooldowns(cache, now);
+
+        var selectedLine = SelectAvailableCachedLine(cache, now);
+
+        if (string.IsNullOrWhiteSpace(selectedLine))
+        {
+            return false;
+        }
+
+        line = TrimDialogueLine(selectedLine, MaxDynamicDialogueLength);
+
+        if (string.IsNullOrWhiteSpace(line))
+        {
+            return false;
+        }
+
+        var cooldown = LineReuseCooldown;
+
+        if (cooldown > TimeSpan.Zero)
+        {
+            cache.NextLineUse[selectedLine] = now + cooldown;
+        }
+
+        return true;
+    }
+
+    private static string SelectAvailableCachedLine(TownChatterCache cache, DateTime now)
+    {
+        string selectedLine = null;
+        var eligibleCount = 0;
+
+        for (var i = 0; i < cache.Lines.Count; i++)
+        {
+            var candidate = cache.Lines[i];
+
+            if (string.IsNullOrWhiteSpace(candidate) ||
+                cache.NextLineUse.TryGetValue(candidate, out var nextUse) && nextUse > now)
+            {
+                continue;
+            }
+
+            eligibleCount++;
+
+            if (Utility.Random(eligibleCount) == 0)
+            {
+                selectedLine = candidate;
+            }
+        }
+
+        return selectedLine;
+    }
+
+    private static void PruneLineCooldowns(TownChatterCache cache, DateTime now)
+    {
+        if (cache?.NextLineUse.Count == 0)
+        {
+            return;
+        }
+
+        List<string> staleKeys = null;
+
+        foreach (var entry in cache.NextLineUse)
+        {
+            if (entry.Value <= now || !CacheContainsLine(cache, entry.Key))
+            {
+                staleKeys ??= new List<string>();
+                staleKeys.Add(entry.Key);
+            }
+        }
+
+        if (staleKeys == null)
+        {
+            return;
+        }
+
+        for (var i = 0; i < staleKeys.Count; i++)
+        {
+            cache.NextLineUse.Remove(staleKeys[i]);
+        }
+    }
+
+    private static bool CacheContainsLine(TownChatterCache cache, string line)
+    {
+        if (cache == null || string.IsNullOrWhiteSpace(line))
+        {
+            return false;
+        }
+
+        for (var i = 0; i < cache.Lines.Count; i++)
+        {
+            if (string.Equals(cache.Lines[i], line, StringComparison.Ordinal))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static void SayLiveComment(Mobile speaker, string line)
+    {
         if (string.IsNullOrWhiteSpace(line))
         {
             return;
@@ -1664,6 +2323,7 @@ public static class TownChatterService
 
         while (cache.Lines.Count > MaxLineCount)
         {
+            cache.NextLineUse.Remove(cache.Lines[0]);
             cache.Lines.RemoveAt(0);
         }
     }
@@ -1685,6 +2345,7 @@ public static class TownChatterService
     {
         if (_autoTopUpRunning || !AIIntegrationService.IsEnabled)
         {
+            RestartAutoTopUpTimer();
             return;
         }
 
@@ -1693,10 +2354,10 @@ public static class TownChatterService
         try
         {
             Logger.Information(
-                "[{Timestamp:u}] [Virtual Ecology] Auto-generating {LineCount} town chatter line(s) for {TownCount} town(s).",
+                "[{Timestamp:u}] [Virtual Ecology] Auto-generating {LineCount} chatter line(s) for {AreaCount} area(s).",
                 Core.Now,
                 AutoTopUpLineCount,
-                DefaultTowns.Length
+                DefaultAreas.Length
             );
 
             var previousLineCount = CountStoredLines();
@@ -1706,7 +2367,7 @@ public static class TownChatterService
             var currentRejectedCount = CountRejectedLines();
 
             Logger.Information(
-                "[{Timestamp:u}] [Virtual Ecology] Town chatter auto-generation complete. Towns={TownCount}, stored delta={StoredDelta}, total stored={TotalStored}, rejected delta={RejectedDelta}.",
+                "[{Timestamp:u}] [Virtual Ecology] Chatter auto-generation complete. Areas={AreaCount}, stored delta={StoredDelta}, total stored={TotalStored}, rejected delta={RejectedDelta}.",
                 Core.Now,
                 caches.Count,
                 currentLineCount - previousLineCount,
@@ -1717,7 +2378,26 @@ public static class TownChatterService
         finally
         {
             _autoTopUpRunning = false;
+            RestartAutoTopUpTimer();
         }
+    }
+
+    private static TimeSpan GetNextAutoTopUpInterval()
+    {
+        return HasDefaultAreaUnderCap() ? CatchUpTopUpInterval : AutoTopUpInterval;
+    }
+
+    private static bool HasDefaultAreaUnderCap()
+    {
+        for (var i = 0; i < DefaultAreas.Length; i++)
+        {
+            if (!TryGetCache(DefaultAreas[i], out var cache) || cache.Lines.Count < MaxLineCount)
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private static int CountStoredLines()
@@ -1759,6 +2439,23 @@ public static class TownChatterService
         }
     }
 
+    private static void WriteLineCooldowns(IGenericWriter writer, TownChatterCache cache)
+    {
+        PruneLineCooldowns(cache, Core.Now);
+        writer.WriteEncodedInt(cache?.NextLineUse.Count ?? 0);
+
+        if (cache == null)
+        {
+            return;
+        }
+
+        foreach (var entry in cache.NextLineUse)
+        {
+            writer.Write(entry.Key);
+            writer.Write(entry.Value);
+        }
+    }
+
     private static void ReadStringList(IGenericReader reader, List<string> values, int maxCount)
     {
         var count = reader.ReadEncodedInt();
@@ -1774,6 +2471,23 @@ public static class TownChatterService
         }
     }
 
+    private static void ReadLineCooldowns(IGenericReader reader, TownChatterCache cache)
+    {
+        var count = reader.ReadEncodedInt();
+        var now = Core.Now;
+
+        for (var i = 0; i < count; i++)
+        {
+            var line = reader.ReadString();
+            var nextUse = reader.ReadDateTime();
+
+            if (!string.IsNullOrWhiteSpace(line) && nextUse > now && CacheContainsLine(cache, line))
+            {
+                cache.NextLineUse[line] = nextUse;
+            }
+        }
+    }
+
     private static string ToDisplayName(string town)
     {
         if (string.IsNullOrWhiteSpace(town))
@@ -1781,7 +2495,32 @@ public static class TownChatterService
             return "Britain";
         }
 
-        return char.ToUpperInvariant(town[0]) + town[1..];
+        town = NormalizeTown(town);
+
+        if (_displayNames.TryGetValue(town, out var displayName))
+        {
+            return displayName;
+        }
+
+        var builder = new StringBuilder(town.Length);
+        var capitalizeNext = true;
+
+        for (var i = 0; i < town.Length; i++)
+        {
+            var value = town[i];
+
+            if (char.IsWhiteSpace(value) || value == '-')
+            {
+                builder.Append(value);
+                capitalizeNext = true;
+                continue;
+            }
+
+            builder.Append(capitalizeNext ? char.ToUpperInvariant(value) : value);
+            capitalizeNext = false;
+        }
+
+        return builder.ToString();
     }
 
     private sealed class TownChatterParseResult
