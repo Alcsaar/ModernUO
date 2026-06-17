@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using Server.Custom.Systems.AchievementSystem;
 using Server.Custom.Systems.AIIntegration;
 using Server.Items;
+using Server.Logging;
 using Server.Misc;
 using Server.Mobiles;
 using Server.Regions;
@@ -43,8 +44,9 @@ public static class TownChatterService
     public const int DefaultLineCount = 12;
     public const int MaxLineCount = 30;
     public const int AutoTopUpLineCount = 3;
-    public static readonly TimeSpan AutoTopUpInterval = TimeSpan.FromMinutes(1.0);
+    public static readonly TimeSpan AutoTopUpInterval = TimeSpan.FromMinutes(10.0);
 
+    private static readonly ILogger Logger = LogFactory.GetLogger(typeof(TownChatterService));
     private const int MaxGenerationAttempts = 3;
     private const int MaxRejectedLineCount = 30;
     private const int MaxCachedDialogueLength = 110;
@@ -177,7 +179,6 @@ public static class TownChatterService
         }
 
         // Keeps the town chatter pools moving while the AI feature is enabled.
-        // Testing interval is intentionally short; production can raise AutoTopUpInterval.
         Timer.StartTimer(AutoTopUpInterval, AutoTopUpInterval, AutoTopUp_OnTick, out _autoTopUpToken);
     }
 
@@ -1546,8 +1547,11 @@ public static class TownChatterService
 
         try
         {
-            Console.WriteLine(
-                $"[Virtual Ecology] Auto-generating {AutoTopUpLineCount} town chatter line(s) for {DefaultTowns.Length} town(s)."
+            Logger.Information(
+                "[{Timestamp:u}] [Virtual Ecology] Auto-generating {LineCount} town chatter line(s) for {TownCount} town(s).",
+                Core.Now,
+                AutoTopUpLineCount,
+                DefaultTowns.Length
             );
 
             var previousLineCount = CountStoredLines();
@@ -1556,8 +1560,13 @@ public static class TownChatterService
             var currentLineCount = CountStoredLines();
             var currentRejectedCount = CountRejectedLines();
 
-            Console.WriteLine(
-                $"[Virtual Ecology] Town chatter auto-generation complete. Towns={caches.Count}, stored delta={currentLineCount - previousLineCount}, total stored={currentLineCount}, rejected delta={currentRejectedCount - previousRejectedCount}."
+            Logger.Information(
+                "[{Timestamp:u}] [Virtual Ecology] Town chatter auto-generation complete. Towns={TownCount}, stored delta={StoredDelta}, total stored={TotalStored}, rejected delta={RejectedDelta}.",
+                Core.Now,
+                caches.Count,
+                currentLineCount - previousLineCount,
+                currentLineCount,
+                currentRejectedCount - previousRejectedCount
             );
         }
         finally

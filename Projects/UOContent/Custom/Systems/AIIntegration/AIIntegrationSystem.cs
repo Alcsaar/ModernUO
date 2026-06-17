@@ -5,5 +5,6 @@ public static class AIIntegrationSystem
     public static void Configure()
     {
         AIIntegrationService.Configure();
+        AIIntegrationCustomAdminModule.Configure();
     }
 }

@@ -1,5 +1,27 @@
 # Unreleased Changes
 
+## Modular Custom Admin UI
+
+### Player-Facing
+- No direct player-facing changes.
+
+### Dev-Facing
+- Added a registry-based custom admin hub under `UOContent/Custom/Systems/CustomAdmin/`.
+- Added modular admin entries for Achievements, Rare Spawns, Custom Feature Flags, Virtual Ecology, and AI Integration.
+- Existing admin gumps can now be opened from the shared `[CustomAdmin` / `[CAdmin` / `[AdminUI` command surface while future systems can register their own hub modules.
+- Added a module contract that supports inline overview panels and linked legacy gumps, so systems can migrate away from standalone gump entry points incrementally.
+
+### Config / Admin
+- New staff commands: `[CustomAdmin`, `[CAdmin`, and `[AdminUI`.
+- Achievements, Rare Spawns, and Virtual Ecology are visible to Game Masters.
+- Custom Feature Flags remains Administrator-only.
+
+### Verification
+- `dotnet build Projects\UOContent\UOContent.csproj` passed with 0 warnings and 0 errors.
+
+### Risks / Notes
+- The first slice preserves existing system-specific admin gumps and routes them through the shared hub instead of rewriting all admin controls into one large gump.
+
 ## AI Integration and Virtual Ecology
 
 ### Player-Facing
@@ -19,6 +41,7 @@
 - AI backend feature flag: `ai_integration`
 - Town chatter commands include `[VirtualEcologyAdmin`, `[VEAdmin`, `[VEGump`, `[TownChatterAdmin`, `[TCGump`, `[TCFacts`, and `[TCFactLine`.
 - Town chatter persistence key is `TownChatter`.
+- Town chatter auto top-up now runs every 10 minutes and writes timestamped generation start/finish log entries.
 
 ### Verification
 - `dotnet build` passed with 0 warnings and 0 errors.
