@@ -5,6 +5,7 @@ using ModernUO.Serialization;
 using Server.Accounting;
 using Server.Collections;
 using Server.ContextMenus;
+using Server.Custom.Systems.Townships;
 using Server.Engines.Spawners;
 using Server.Ethics;
 using Server.Guilds;
@@ -2615,6 +2616,14 @@ namespace Server.Multis
             {
                 from.SendLocalizedMessage(501351); // You cannot eject a vendor.
             }
+            /* BEGIN CUSTOM TOWNSHIPS: township NPCs standing inside a township house are managed
+             * by township controls, not by house kick commands.
+             */
+            else if (TownshipService.IsTownshipNpcInTownshipHouse(targ, this))
+            {
+                from.SendLocalizedMessage(501347); // You cannot eject that from the house!
+            }
+            /* END CUSTOM TOWNSHIPS */
             else if (!IsInside(targ))
             {
                 from.SendLocalizedMessage(501352); // You may not eject someone who is not in your house!
@@ -2646,11 +2655,15 @@ namespace Server.Multis
             {
                 Access.Remove(targ);
 
-                if (!HasAccess(targ) && IsInside(targ))
+                /* BEGIN CUSTOM TOWNSHIPS: do not push township NPCs in township houses to the ban
+                 * location if a broad access-list change catches them.
+                 */
+                if (!TownshipService.IsTownshipNpcInTownshipHouse(targ, this) && !HasAccess(targ) && IsInside(targ))
                 {
                     targ.Location = BanLocation;
                     targ.SendLocalizedMessage(1060734); // Your access to this house has been revoked.
                 }
+                /* END CUSTOM TOWNSHIPS */
 
                 from.SendLocalizedMessage(1050051); // The invitation has been revoked.
             }
@@ -2690,6 +2703,14 @@ namespace Server.Multis
             {
                 from.SendLocalizedMessage(501351); // You cannot eject a vendor.
             }
+            /* BEGIN CUSTOM TOWNSHIPS: township NPCs standing inside a township house are removed
+             * through township controls, not house ban controls.
+             */
+            else if (TownshipService.IsTownshipNpcInTownshipHouse(targ, this))
+            {
+                from.SendLocalizedMessage(1062040); // You cannot ban that.
+            }
+            /* END CUSTOM TOWNSHIPS */
             else if (Bans.Count >= MaxBans)
             {
                 from.SendLocalizedMessage(501355); // The ban limit for this house has been reached!
@@ -3616,6 +3637,15 @@ namespace Server.Multis
                 return false;
             }
 
+            /* BEGIN CUSTOM TOWNSHIPS: township NPCs should not be treated as banned occupants
+             * while they are inside a house that belongs to their township.
+             */
+            if (TownshipService.IsTownshipNpcInTownshipHouse(m, this))
+            {
+                return false;
+            }
+            /* END CUSTOM TOWNSHIPS */
+
             var theirAccount = m.Account as Account;
 
             for (var i = 0; i < Bans.Count; ++i)
@@ -3647,6 +3677,15 @@ namespace Server.Multis
             {
                 return true;
             }
+
+            /* BEGIN CUSTOM TOWNSHIPS: township NPCs in township houses should not fail private-house
+             * access checks while their placement belongs to that township.
+             */
+            if (TownshipService.IsTownshipNpcInTownshipHouse(m, this))
+            {
+                return true;
+            }
+            /* END CUSTOM TOWNSHIPS */
 
             if (m is not BaseCreature bc)
             {

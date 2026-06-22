@@ -1,5 +1,6 @@
 using System;
 using ModernUO.CodeGeneratedEvents;
+using Server.Custom.Systems.Townships;
 using Server.Gumps;
 using Server.Items;
 using Server.Mobiles;
@@ -91,7 +92,11 @@ public class HouseRegion : BaseRegion
 
         var bc = m as BaseCreature;
 
-        if (bc?.NoHouseRestrictions != true &&
+        /* BEGIN CUSTOM TOWNSHIPS: township NPCs inside a house that belongs to their township
+         * should not be ejected by normal house access/ban movement checks.
+         */
+        if (!TownshipService.IsTownshipNpcInTownshipHouse(m, House) &&
+            bc?.NoHouseRestrictions != true &&
             (bc?.IsHouseSummonable != true || BaseCreature.Summoning || House.IsInside(oldLocation, 16)))
         {
             if ((House.Public || !House.IsAosRules) && House.IsBanned(m) && House.IsInside(m))
@@ -143,7 +148,10 @@ public class HouseRegion : BaseRegion
 
         var bc = from as BaseCreature;
 
-        if (bc?.NoHouseRestrictions != true)
+        /* BEGIN CUSTOM TOWNSHIPS: allow township NPCs to remain inside a house that belongs
+         * to their township without being blocked by normal visitor/ban movement checks.
+         */
+        if (!TownshipService.IsTownshipNpcInTownshipHouse(from, House) && bc?.NoHouseRestrictions != true)
         {
             if (bc?.IsHouseSummonable == true &&
                 !(BaseCreature.Summoning || House.IsInside(oldLocation, 16)))
@@ -207,6 +215,19 @@ public class HouseRegion : BaseRegion
 
     public override TimeSpan GetLogoutDelay(Mobile m)
     {
+        /* BEGIN CUSTOM TOWNSHIPS: active township innkeepers allow anyone inside the anchored
+         * building to log out like an inn, while preserving combat/criminal restrictions.
+         */
+        if (House.IsInside(m) &&
+            TownshipService.HasActiveInnkeeperForHouse(House) &&
+            m.Aggressors.Count == 0 &&
+            m.Aggressed.Count == 0 &&
+            !m.Criminal)
+        {
+            return TimeSpan.Zero;
+        }
+        /* END CUSTOM TOWNSHIPS */
+
         if (!House.IsFriend(m) || !House.IsInside(m))
         {
             return base.GetLogoutDelay(m);

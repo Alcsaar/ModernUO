@@ -2,6 +2,7 @@ using System;
 using System.Buffers;
 using System.Collections.Generic;
 using System.IO;
+using Server.Custom.Systems.Townships;
 using Server.Gumps;
 using Server.Items;
 using Server.Mobiles;
@@ -901,10 +902,14 @@ namespace Server.Multis
             for (var i = 0; i < mobiles.Count; i++)
             {
                 var mobile = mobiles[i];
-                if (mobile != m)
+                /* BEGIN CUSTOM TOWNSHIPS: township NPCs in township houses are managed by
+                 * townships and should not be ejected by design-mode setup.
+                 */
+                if (mobile != m && !TownshipService.IsTownshipNpcInTownshipHouse(mobile, this))
                 {
                     mobile.Location = BanLocation;
                 }
+                /* END CUSTOM TOWNSHIPS */
             }
 
             DesignContext.Add(m, this);
@@ -1304,7 +1309,14 @@ namespace Server.Multis
             for (var i = 0; i < list.Count; i++)
             {
                 var mobile = list[i];
-                mobile.Location = BanLocation;
+                /* BEGIN CUSTOM TOWNSHIPS: do not eject township NPCs during foundation design
+                 * commits while they are inside a house that belongs to their township.
+                 */
+                if (!TownshipService.IsTownshipNpcInTownshipHouse(mobile, this))
+                {
+                    mobile.Location = BanLocation;
+                }
+                /* END CUSTOM TOWNSHIPS */
             }
 
             // Restore relocated entities
@@ -1774,7 +1786,14 @@ namespace Server.Multis
             for (var i = 0; i < mobiles.Count; i++)
             {
                 var mobile = mobiles[i];
-                mobile.Location = context.Foundation.BanLocation;
+                /* BEGIN CUSTOM TOWNSHIPS: do not eject township NPCs during foundation
+                 * customization restore/commit sweeps while their house belongs to the township.
+                 */
+                if (!TownshipService.IsTownshipNpcInTownshipHouse(mobile, context.Foundation))
+                {
+                    mobile.Location = context.Foundation.BanLocation;
+                }
+                /* END CUSTOM TOWNSHIPS */
             }
 
             // Restore relocated entities

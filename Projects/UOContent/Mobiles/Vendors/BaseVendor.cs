@@ -12,9 +12,13 @@ using Server.Network;
 using Server.Regions;
 using Server.Logging;
 using Server.Systems.FeatureFlags;
+/* BEGIN CUSTOM TOWNSHIPS: township-owned service vendors can credit purchase revenue to their treasury */
+using Server.Custom.Systems.Townships;
+/* END CUSTOM TOWNSHIPS */
 /* BEGIN CUSTOM ACTIVITY TRACKING: allow NPC vendor sell transactions to credit earned gold */
 using Server.Custom.Engines.ActivityTracking;
 /* END CUSTOM ACTIVITY TRACKING */
+using Server.Text;
 
 namespace Server.Mobiles
 {
@@ -284,6 +288,12 @@ namespace Server.Mobiles
                 : BuildActivityPurchaseLines(buyer, validBuy, info);
             /* END CUSTOM ACTIVITY TRACKING */
 
+            /* BEGIN CUSTOM TOWNSHIPS: prepare successful township service vendor purchase details for treasury revenue */
+            var townshipPurchaseDetails = buyer.AccessLevel >= AccessLevel.GameMaster
+                ? null
+                : BuildTownshipPurchaseDetails(activityPurchaseLines);
+            /* END CUSTOM TOWNSHIPS */
+
             buyer.PlaySound(0x32);
 
             cont = buyer.Backpack ?? buyer.BankBox;
@@ -362,6 +372,10 @@ namespace Server.Mobiles
                 ActivityTrackingService.RecordNpcVendorGoldSpent(buyer, this, totalCost, activityPurchaseLines);
             }
             /* END CUSTOM ACTIVITY TRACKING */
+
+            /* BEGIN CUSTOM TOWNSHIPS: credit configured township vendor revenue after payment and item delivery */
+            TownshipService.RecordNpcVendorPurchaseRevenue(this, buyer, totalCost, townshipPurchaseDetails);
+            /* END CUSTOM TOWNSHIPS */
 
             if (fullPurchase)
             {
@@ -537,6 +551,107 @@ namespace Server.Mobiles
             });
         }
         /* END CUSTOM ACTIVITY TRACKING */
+
+        /* BEGIN CUSTOM TOWNSHIPS: summarize purchased item quantities for aggregated treasury contribution details */
+        private static string BuildTownshipPurchaseDetails(List<ActivityTrackingService.VendorSaleLine> lines)
+        {
+            if (lines == null || lines.Count == 0)
+            {
+                return "purchase details unavailable";
+            }
+
+            using var builder = ValueStringBuilder.Create(128);
+            var shown = 0;
+
+            for (var i = 0; i < lines.Count; i++)
+            {
+                var line = lines[i];
+
+                if (line.Quantity <= 0)
+                {
+                    continue;
+                }
+
+                if (shown > 0)
+                {
+                    builder.Append("; ");
+                }
+
+                builder.Append(line.Quantity);
+                builder.Append(" x ");
+                builder.Append(GetTownshipPurchaseLineName(line.ItemName, line.ItemType));
+                shown++;
+            }
+
+            if (shown == 0)
+            {
+                return "purchase details unavailable";
+            }
+
+            return builder.ToString();
+        }
+
+        private static string GetTownshipPurchaseLineName(string itemName, string itemType)
+        {
+            if (!string.IsNullOrWhiteSpace(itemName) && !IsNumericName(itemName))
+            {
+                return itemName.Trim();
+            }
+
+            return FormatTownshipPurchaseTypeName(itemType);
+        }
+
+        private static bool IsNumericName(string value)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                return false;
+            }
+
+            for (var i = 0; i < value.Length; i++)
+            {
+                if (!char.IsDigit(value[i]))
+                {
+                    return false;
+                }
+            }
+
+            return true;
+        }
+
+        private static string FormatTownshipPurchaseTypeName(string itemType)
+        {
+            if (string.IsNullOrWhiteSpace(itemType))
+            {
+                return "unknown item";
+            }
+
+            itemType = itemType.Trim();
+
+            if (itemType.StartsWith("Base", StringComparison.Ordinal) && itemType.Length > 4)
+            {
+                itemType = itemType[4..];
+            }
+
+            using var builder = ValueStringBuilder.Create(itemType.Length + 8);
+
+            for (var i = 0; i < itemType.Length; i++)
+            {
+                var c = itemType[i];
+
+                if (i > 0 &&
+                    char.IsUpper(c) &&
+                    (char.IsLower(itemType[i - 1]) || i + 1 < itemType.Length && char.IsLower(itemType[i + 1])))
+                {
+                    builder.Append(' ');
+                }
+
+                builder.Append(i == 0 ? char.ToUpperInvariant(c) : c);
+            }
+
+            return builder.ToString();
+        }
+        /* END CUSTOM TOWNSHIPS */
 
         public virtual bool OnSellItems(Mobile seller, List<SellItemResponse> list)
         {

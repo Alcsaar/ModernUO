@@ -1,9 +1,11 @@
 using System;
 using System.Reflection;
 using Server.HuePickers;
+using Server.Custom.Systems.Townships;
 using Server.Items;
 using Server.Mobiles;
 using Server.Network;
+using Server.Prompts;
 /* BEGIN CUSTOM ACTIVITY TRACKING: record player-owned vendor sales for economy logging */
 using Server.Custom.Engines.ActivityTracking;
 /* END CUSTOM ACTIVITY TRACKING */
@@ -375,6 +377,8 @@ namespace Server.Gumps
 
     public class PlayerVendorCustomizeGump : StaticGump<PlayerVendorCustomizeGump>
     {
+        private const int ButtonRenameTownshipNpc = 300;
+
         private static readonly CustomCategory[] Categories =
         [
             new(
@@ -565,6 +569,15 @@ namespace Server.Gumps
             builder.AddHtmlLocalized(320, 355, 150, 18, 1011012); // CANCEL
             builder.AddButton(285, 355, 4005, 4007, 0);
 
+            if (_vendor is ITownshipServiceNpc)
+            {
+                /* Township NPC customization includes naming so owners do not have to leave
+                 * the outfit/appearance workflow to apply a profanity-filtered service NPC name.
+                 */
+                builder.AddButton(427, 355, 4005, 4007, ButtonRenameTownshipNpc);
+                builder.AddHtml(462, 356, 90, 18, "Rename", "#D8D8D8");
+            }
+
             var y = 35;
             for (var i = 0; i < Categories.Length; i++)
             {
@@ -625,9 +638,14 @@ namespace Server.Gumps
                 return;
             }
 
+            if (_vendor is ITownshipServiceNpc townshipNpc && !TownshipService.CanManageTownship(townshipNpc.Township, from))
+            {
+                return;
+            }
+
             if (info.ButtonID == 0)
             {
-                if (_vendor is PlayerVendor) // do nothing for barkeeps
+                if (_vendor is PlayerVendor) // do nothing for barkeeps/township NPCs
                 {
                     _vendor.Direction = _vendor.GetDirectionTo(from);
                     _vendor.Animate(32, 5, 1, true, false, 0);         // bow
@@ -800,6 +818,74 @@ namespace Server.Gumps
                     }
                 }
             }
+            else if (info.ButtonID == ButtonRenameTownshipNpc && _vendor is ITownshipServiceNpc renameNpc)
+            {
+                var township = renameNpc.Township;
+                var service = renameNpc.Service;
+
+                if (service == null || !TownshipService.CanManageTownship(township, from))
+                {
+                    from.SendMessage(0x22, "You do not have permission to modify this township NPC.");
+                    return;
+                }
+
+                from.SendMessage(0x35, "Enter a new name for this township NPC.");
+                from.Prompt = new TownshipNpcCustomizeRenamePrompt(township, service.Id);
+            }
+        }
+
+        private sealed class TownshipNpcCustomizeRenamePrompt : Prompt
+        {
+            private readonly TownshipState _township;
+            private readonly string _serviceId;
+
+            public TownshipNpcCustomizeRenamePrompt(TownshipState township, string serviceId)
+            {
+                _township = township;
+                _serviceId = serviceId;
+            }
+
+            public override void OnResponse(Mobile from, string text)
+            {
+                if (from == null)
+                {
+                    return;
+                }
+
+                if (!TownshipService.RenamePaidServiceNpc(_township, from, _serviceId, text, out var reason))
+                {
+                    from.SendMessage(0x22, reason);
+                    return;
+                }
+
+                from.SendMessage(0x35, "Township NPC renamed.");
+
+                var service = TownshipService.FindPaidService(_township, _serviceId);
+
+                if (service?.CreatedObjectSerial != Server.Serial.Zero &&
+                    World.FindMobile(service.CreatedObjectSerial) is Mobile vendor &&
+                    !vendor.Deleted)
+                {
+                    DisplayTo(from, vendor);
+                }
+            }
+
+            public override void OnCancel(Mobile from)
+            {
+                if (from == null)
+                {
+                    return;
+                }
+
+                var service = TownshipService.FindPaidService(_township, _serviceId);
+
+                if (service?.CreatedObjectSerial != Server.Serial.Zero &&
+                    World.FindMobile(service.CreatedObjectSerial) is Mobile vendor &&
+                    !vendor.Deleted)
+                {
+                    DisplayTo(from, vendor);
+                }
+            }
         }
 
         private class CustomItem
@@ -911,6 +997,12 @@ namespace Server.Gumps
                     return;
                 }
 
+                if (m_Vendor is ITownshipServiceNpc townshipNpc &&
+                    !TownshipService.CanManageTownship(townshipNpc.Township, m_Mob))
+                {
+                    return;
+                }
+
                 m_Item.Hue = hue;
                 DisplayTo(m_Mob, m_Vendor);
             }
@@ -942,6 +1034,12 @@ namespace Server.Gumps
                 }
 
                 if (m_Vendor is PlayerBarkeeper barkeeper && !barkeeper.IsOwner(m_Mob))
+                {
+                    return;
+                }
+
+                if (m_Vendor is ITownshipServiceNpc townshipNpc &&
+                    !TownshipService.CanManageTownship(townshipNpc.Township, m_Mob))
                 {
                     return;
                 }

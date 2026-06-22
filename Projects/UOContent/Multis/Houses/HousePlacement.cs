@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using Server.Collections;
+using Server.Custom.Systems.Townships;
 using Server.Regions;
 using Server.Spells;
 using Server.Systems.FeatureFlags;
@@ -88,6 +89,13 @@ namespace Server.Multis
 
             // Location of the northwest-most corner of the house
             var start = new Point3D(center.X + mcl.Min.X, center.Y + mcl.Min.Y, center.Z);
+
+            /* BEGIN CUSTOM TOWNSHIPS: prevent non-guild housing inside claimed township land or its placement buffer. */
+            if (TownshipService.BlocksHousePlacement(from, new Rectangle2D(start.X, start.Y, mcl.Width, mcl.Height), map))
+            {
+                return HousePlacementResult.BadRegion;
+            }
+            /* END CUSTOM TOWNSHIPS */
 
             // These are storage lists. They hold items and mobiles found in the map for further processing
             using var items = PooledRefList<Item>.Create();

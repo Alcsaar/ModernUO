@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using Server.Engines.ConPVP;
+using Server.Custom.Systems.Townships;
 using Server.Engines.PartySystem;
 using Server.Factions;
 using Server.Guilds;
@@ -534,6 +535,15 @@ namespace Server.Misc
         public static bool CheckHouseFlag(Mobile from, Mobile m, Point3D p, Map map)
         {
             var house = BaseHouse.FindHouseAt(p, map, 16);
+
+            /* BEGIN CUSTOM TOWNSHIPS: township NPCs intentionally placed in township houses
+             * should not become grey/attackable just because they stand inside that private house.
+             */
+            if (TownshipService.IsTownshipNpcInTownshipHouse(m, house))
+            {
+                return false;
+            }
+            /* END CUSTOM TOWNSHIPS */
 
             if (house?.Public != false || !house.IsFriend(from))
             {
