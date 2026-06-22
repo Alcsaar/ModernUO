@@ -4,6 +4,7 @@ using ModernUO.Serialization;
 using Server.Buffers;
 using Server.Collections;
 using Server.ContextMenus;
+using Server.Custom.Systems.Townships;
 using Server.Engines.MLQuests;
 using Server.Engines.MLQuests.Definitions;
 using Server.Engines.MLQuests.Objectives;
@@ -610,7 +611,7 @@ public partial class BaseEscortable : BaseCreature
             return false;
         }
 
-        if (dest.Contains(Location))
+        if (dest.Contains(Location, Map))
         {
             // We have arrived! I thank thee, ~1_PLAYER_NAME~! I have no further need of thy services. Here is thy pay.
             Say(1042809, escorter.Name);
@@ -622,10 +623,31 @@ public partial class BaseEscortable : BaseCreature
             var cont = escorter.Backpack ?? escorter.BankBox;
 
             var gold = new Gold(500, 1000);
+            var rewardAmount = gold.Amount;
 
             if (!cont.TryDropItem(escorter, gold, false))
             {
                 gold.MoveToWorld(escorter.Location, escorter.Map);
+            }
+
+            /*
+             * Custom township integration:
+             * Township escort destinations pay the escorter normally, then generate
+             * a separate treasury bonus equal to half of the escort reward. The
+             * player reward is not reduced, and the treasury activity is aggregated
+             * by the township system to avoid log spam from repeated escorts.
+             */
+            if (dest.TryGetTownship(out var township))
+            {
+                var bonus = Math.Max(1, rewardAmount / 2);
+                TownshipService.AddAutomatedTreasuryRevenue(
+                    township,
+                    escorter,
+                    bonus,
+                    TownshipDepositSource.EscortRevenue,
+                    $"Escorted {Name ?? GetType().Name} to the township."
+                );
+                escorter.SendMessage(0x35, $"{township.Name} received {bonus:N0} gp in escort revenue.");
             }
 
             StopFollow();
@@ -783,14 +805,59 @@ public partial class BaseEscortable : BaseCreature
             picked = possible.RandomElement();
             var test = EDI.Find(picked);
 
-            if (test?.Contains(Location) != false)
+            if (test?.Contains(Location, Map) != false)
             {
                 picked = null;
             }
         }
 
-        return picked;
+        return PickTownshipDestination(picked);
     }
+
+    private string PickTownshipDestination(string fallback)
+    {
+        var eligibleCount = 0;
+        var townships = TownshipService.Townships;
+
+        for (var i = 0; i < townships.Count; i++)
+        {
+            var township = townships[i];
+
+            if (IsValidTownshipDestination(township))
+            {
+                eligibleCount++;
+            }
+        }
+
+        if (eligibleCount == 0 || Utility.Random(eligibleCount + 1) == 0)
+        {
+            return fallback;
+        }
+
+        var target = Utility.Random(eligibleCount);
+
+        for (var i = 0; i < townships.Count; i++)
+        {
+            var township = townships[i];
+
+            if (!IsValidTownshipDestination(township))
+            {
+                continue;
+            }
+
+            if (target-- == 0)
+            {
+                return EDI.GetTownshipKey(township);
+            }
+        }
+
+        return fallback;
+    }
+
+    private bool IsValidTownshipDestination(TownshipState township) =>
+        township?.Region != null &&
+        township.Map == Map &&
+        !township.Region.Contains(Location);
 
     public EDI GetDestination()
     {
@@ -804,7 +871,7 @@ public partial class BaseEscortable : BaseCreature
             _destinationString = PickRandomDestination();
         }
 
-        if (_destination != null && _destination.Name == _destinationString)
+        if (_destination != null && _destination.Key == _destinationString)
         {
             return _destination;
         }
@@ -831,20 +898,37 @@ public partial class BaseEscortable : BaseCreature
 public class EscortDestinationInfo
 {
     private static readonly ILogger logger = LogFactory.GetLogger(typeof(EscortDestinationInfo));
+    private const string TownshipDestinationPrefix = "Township:";
 
     private static Dictionary<string, EDI> _table;
 
-    public EscortDestinationInfo(string name, Region region)
+    public EscortDestinationInfo(string name, Region region) : this(name, region, name, null)
+    {
+    }
+
+    private EscortDestinationInfo(string name, Region region, string key, TownshipState township)
     {
         Name = name;
         Region = region;
+        Key = key;
+        Township = township;
     }
 
     public string Name { get; }
 
+    public string Key { get; }
+
     public Region Region { get; }
 
-    public bool Contains(Point3D p) => Region.Contains(p);
+    private TownshipState Township { get; }
+
+    public bool Contains(Point3D p, Map map) => Region.Map == map && Region.Contains(p);
+
+    public bool TryGetTownship(out TownshipState township)
+    {
+        township = Township;
+        return township != null;
+    }
 
     public static void Initialize()
     {
@@ -894,9 +978,24 @@ public class EscortDestinationInfo
             return null;
         }
 
+        if (name.StartsWith(TownshipDestinationPrefix, StringComparison.OrdinalIgnoreCase))
+        {
+            var township = TownshipService.FindById(name[TownshipDestinationPrefix.Length..]);
+
+            if (township?.Region == null)
+            {
+                return null;
+            }
+
+            return new EDI(township.Name, township.Region, name, township);
+        }
+
         _table.TryGetValue(name, out var info);
         return info;
     }
+
+    public static string GetTownshipKey(TownshipState township) =>
+        township == null ? null : $"{TownshipDestinationPrefix}{township.Id}";
 }
 
 public class AskDestinationEntry : ContextMenuEntry

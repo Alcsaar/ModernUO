@@ -30,6 +30,9 @@ using Server.Custom.Engines.ActivityTracking;
 /* BEGIN CUSTOM ACHIEVEMENT SYSTEM: expose achievement progress tracking to creature death hooks */
 using Server.Custom.Systems.AchievementSystem;
 /* END CUSTOM ACHIEVEMENT SYSTEM */
+/* BEGIN CUSTOM TOWNSHIPS: allow township-owned service NPCs to opt out of monster threat labels. */
+using Server.Custom.Systems.Townships;
+/* END CUSTOM TOWNSHIPS */
 
 using Server.Engines.RelativeThreatSystem;
 using Server.Custom.Systems.CustomFeatureFlags;
@@ -2976,6 +2979,10 @@ namespace Server.Mobiles
         {
             if (
                     !Controlled &&
+                    /* BEGIN CUSTOM TOWNSHIPS: township-owned service NPCs show their township tag instead
+                     * of combat threat labels such as (Deadly).
+                     */
+                    this is not ITownshipOwnedObject &&
                     from != null &&
                     !from.Deleted &&
                     CustomFeatureFlagManager.IsEnabled(CustomFeatureFlagKeys.RelativeThreat)
@@ -3374,11 +3381,14 @@ namespace Server.Mobiles
                 return;
             }
 
+            List<DamageStore> townshipTaxRights = null;
+
             if (!Summoned && !NoKillAwards)
             {
                 var (totalFame, totalKarma) = Titles.ComputeKillAwards(this, Map);
 
                 var list = GetLootingRights(DamageEntries, HitsMax);
+                townshipTaxRights = list;
                 /* BEGIN CUSTOM ACTIVITY TRACKING: notify activity tracking service of this creature kill event */
                 ActivityTrackingService.RecordCreatureKill(this, list);
                 /* END CUSTOM ACTIVITY TRACKING */
@@ -3498,6 +3508,10 @@ namespace Server.Mobiles
             }
 
             base.OnDeath(c);
+
+            /* BEGIN CUSTOM TOWNSHIPS: generate township hunting bonus revenue from eligible guild-member kills without changing corpse gold. */
+            TownshipService.ApplyHuntingTax(this, c, townshipTaxRights);
+            /* END CUSTOM TOWNSHIPS */
 
             /* BEGIN CUSTOM ACTIVITY TRACKING: register original monster corpse gold for anti-duplication loot tracking */
             ActivityTrackingService.RegisterMonsterCorpseGold(this, c);

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using Server.Custom.Systems.Townships;
 using Server.Guilds;
 using Server.Mobiles;
 using Server.Multis;
@@ -785,7 +786,10 @@ namespace Server.Gumps
                 {
                     var m = list[i];
 
-                    if (!house.HasAccess(m) && house.IsInside(m))
+                    /* BEGIN CUSTOM TOWNSHIPS: township-owned service NPCs should not be expelled by
+                     * bulk house access-list clearing; township service controls manage them.
+                     */
+                    if (m is not ITownshipOwnedObject && !house.HasAccess(m) && house.IsInside(m))
                     {
                         m.Location = house.BanLocation;
                         m.SendLocalizedMessage(1060734); // Your access to this house has been revoked.
@@ -914,7 +918,14 @@ namespace Server.Gumps
 
                     foreach (var mobile in mobiles)
                     {
-                        mobile.Location = newHouse.BanLocation;
+                        /* BEGIN CUSTOM TOWNSHIPS: leave township-owned service NPCs in place during
+                         * house replacement instead of treating them as generic occupants to eject.
+                         */
+                        if (mobile is not ITownshipOwnedObject)
+                        {
+                            mobile.Location = newHouse.BanLocation;
+                        }
+                        /* END CUSTOM TOWNSHIPS */
                     }
 
                     /* You have successfully replaced your original house with a new house.
@@ -1260,7 +1271,10 @@ namespace Server.Gumps
                                         {
                                             var m = list[i];
 
-                                            if (!_house.HasAccess(m) && _house.IsInside(m))
+                                            /* BEGIN CUSTOM TOWNSHIPS: do not eject township-owned service NPCs
+                                             * during public/private conversion access sweeps.
+                                             */
+                                            if (m is not ITownshipOwnedObject && !_house.HasAccess(m) && _house.IsInside(m))
                                             {
                                                 m.Location = _house.BanLocation;
                                             }
@@ -1302,7 +1316,10 @@ namespace Server.Gumps
                                         {
                                             var m = list[i];
 
-                                            if (_house.IsBanned(m) && _house.IsInside(m))
+                                            /* BEGIN CUSTOM TOWNSHIPS: do not eject township-owned service NPCs
+                                             * during public/private conversion ban sweeps.
+                                             */
+                                            if (m is not ITownshipOwnedObject && _house.IsBanned(m) && _house.IsInside(m))
                                             {
                                                 m.Location = _house.BanLocation;
                                             }
