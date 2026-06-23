@@ -201,7 +201,7 @@ public partial class TreasureMapChest : LockableContainer
             // if (Core.SA)
             // cont.DropItem( new Gold( level * 5000 ) );
             // else
-            var gold = new Gold(level * 1000);
+            var gold = new Gold(Utility.RandomMinMax(level * 700, level * 800)); // Default gold: level * 1000
             cont.DropItem(gold);
             /* BEGIN ACTIVITY TRACKING CUSTOMIZATION: register naturally spawned treasure map chest gold for later loot credit */
             if (cont is TreasureMapChest treasureMapChest)

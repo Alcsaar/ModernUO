@@ -118,8 +118,8 @@ public partial class BaseTreasureChest : LockableContainer
             TreasureLevel.Level2 => Utility.RandomMinMax(300, 600),
             TreasureLevel.Level3 => Utility.RandomMinMax(600, 900),
             TreasureLevel.Level4 => Utility.RandomMinMax(900, 1200),
-            TreasureLevel.Level5 => Utility.RandomMinMax(1200, 5000),
-            _                    => Utility.RandomMinMax(5000, 9000),
+            TreasureLevel.Level5 => Utility.RandomMinMax(900, 3750), // Default gold: 1200-5000
+            _                    => Utility.RandomMinMax(3750, 6750), // Default gold: 5000-9000
         };
 
         var goldItem = new Gold(gold);

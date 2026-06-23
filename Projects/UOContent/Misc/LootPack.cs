@@ -168,7 +168,7 @@ namespace Server
 
         public static readonly LootPack MlRich = new(
             [
-                new LootPackEntry(true, Gold, 100.00, "4d50+450"),
+                new LootPackEntry(true, Gold, 100.00, "2d50+225"), // Default gold: 4d50+450
                 new LootPackEntry(false, AosMagicItemsRichType1, 100.00, 1, 3, 0, 75),
                 new LootPackEntry(false, AosMagicItemsRichType1, 80.00, 1, 3, 0, 75),
                 new LootPackEntry(false, AosMagicItemsRichType1, 60.00, 1, 5, 0, 100),
@@ -259,7 +259,7 @@ namespace Server
 
         public static readonly LootPack SePoor = new(
             [
-                new LootPackEntry(true, Gold, 100.00, "2d10+20"),
+                new LootPackEntry(true, Gold, 100.00, "2d10+20"), // Default gold unchanged
                 new LootPackEntry(false, AosMagicItemsPoor, 1.00, 1, 5, 0, 100),
                 new LootPackEntry(false, Instruments, 0.02, 1)
             ]
@@ -267,7 +267,7 @@ namespace Server
 
         public static readonly LootPack SeMeager = new(
             [
-                new LootPackEntry(true, Gold, 100.00, "4d10+40"),
+                new LootPackEntry(true, Gold, 100.00, "3d10+30"), // Default gold: 4d10+40
                 new LootPackEntry(false, AosMagicItemsMeagerType1, 20.40, 1, 2, 0, 50),
                 new LootPackEntry(false, AosMagicItemsMeagerType2, 10.20, 1, 5, 0, 100),
                 new LootPackEntry(false, Instruments, 0.10, 1)
@@ -276,7 +276,7 @@ namespace Server
 
         public static readonly LootPack SeAverage = new(
             [
-                new LootPackEntry(true, Gold, 100.00, "8d10+100"),
+                new LootPackEntry(true, Gold, 100.00, "4d10+50"), // Default gold: 8d10+100
                 new LootPackEntry(false, AosMagicItemsAverageType1, 32.80, 1, 3, 0, 50),
                 new LootPackEntry(false, AosMagicItemsAverageType1, 32.80, 1, 4, 0, 75),
                 new LootPackEntry(false, AosMagicItemsAverageType2, 19.50, 1, 5, 0, 100),
@@ -286,7 +286,7 @@ namespace Server
 
         public static readonly LootPack SeRich = new(
             [
-                new LootPackEntry(true, Gold, 100.00, "15d10+225"),
+                new LootPackEntry(true, Gold, 100.00, "8d10+110"), // Default gold: 15d10+225
                 new LootPackEntry(false, AosMagicItemsRichType1, 76.30, 1, 4, 0, 75),
                 new LootPackEntry(false, AosMagicItemsRichType1, 76.30, 1, 4, 0, 75),
                 new LootPackEntry(false, AosMagicItemsRichType2, 61.70, 1, 5, 0, 100),
@@ -296,7 +296,7 @@ namespace Server
 
         public static readonly LootPack SeFilthyRich = new(
             [
-                new LootPackEntry(true, Gold, 100.00, "3d100+400"),
+                new LootPackEntry(true, Gold, 100.00, "2d100+175"), // Default gold: 3d100+400
                 new LootPackEntry(false, AosMagicItemsFilthyRichType1, 79.50, 1, 5, 0, 100),
                 new LootPackEntry(false, AosMagicItemsFilthyRichType1, 79.50, 1, 5, 0, 100),
                 new LootPackEntry(false, AosMagicItemsFilthyRichType2, 77.60, 1, 5, 25, 100),
@@ -306,7 +306,7 @@ namespace Server
 
         public static readonly LootPack SeUltraRich = new(
             [
-                new LootPackEntry(true, Gold, 100.00, "6d100+600"),
+                new LootPackEntry(true, Gold, 100.00, "3d100+300"), // Default gold: 6d100+600
                 new LootPackEntry(false, AosMagicItemsUltraRich, 100.00, 1, 5, 25, 100),
                 new LootPackEntry(false, AosMagicItemsUltraRich, 100.00, 1, 5, 25, 100),
                 new LootPackEntry(false, AosMagicItemsUltraRich, 100.00, 1, 5, 25, 100),
@@ -319,7 +319,7 @@ namespace Server
 
         public static readonly LootPack SeSuperBoss = new(
             [
-                new LootPackEntry(true, Gold, 100.00, "10d100+800"),
+                new LootPackEntry(true, Gold, 100.00, "5d100+425"), // Default gold: 10d100+800
                 new LootPackEntry(false, AosMagicItemsUltraRich, 100.00, 1, 5, 25, 100),
                 new LootPackEntry(false, AosMagicItemsUltraRich, 100.00, 1, 5, 25, 100),
                 new LootPackEntry(false, AosMagicItemsUltraRich, 100.00, 1, 5, 25, 100),
@@ -336,7 +336,7 @@ namespace Server
 
         public static readonly LootPack AosPoor = new(
             [
-                new LootPackEntry(true, Gold, 100.00, "1d10+10"),
+                new LootPackEntry(true, Gold, 100.00, "1d10+10"), // Default gold unchanged
                 new LootPackEntry(false, AosMagicItemsPoor, 0.02, 1, 5, 0, 90),
                 new LootPackEntry(false, Instruments, 0.02, 1)
             ]
@@ -344,7 +344,7 @@ namespace Server
 
         public static readonly LootPack AosMeager = new(
             [
-                new LootPackEntry(true, Gold, 100.00, "3d10+20"),
+                new LootPackEntry(true, Gold, 100.00, "2d10+16"), // Default gold: 3d10+20
                 new LootPackEntry(false, AosMagicItemsMeagerType1, 1.00, 1, 2, 0, 10),
                 new LootPackEntry(false, AosMagicItemsMeagerType2, 0.20, 1, 5, 0, 90),
                 new LootPackEntry(false, Instruments, 0.10, 1)
@@ -353,7 +353,7 @@ namespace Server
 
         public static readonly LootPack AosAverage = new(
             [
-                new LootPackEntry(true, Gold, 100.00, "5d10+50"),
+                new LootPackEntry(true, Gold, 100.00, "3d10+22"), // Default gold: 5d10+50
                 new LootPackEntry(false, AosMagicItemsAverageType1, 5.00, 1, 4, 0, 20),
                 new LootPackEntry(false, AosMagicItemsAverageType1, 2.00, 1, 3, 0, 50),
                 new LootPackEntry(false, AosMagicItemsAverageType2, 0.50, 1, 5, 0, 90),
@@ -363,7 +363,7 @@ namespace Server
 
         public static readonly LootPack AosRich = new(
             [
-                new LootPackEntry(true, Gold, 100.00, "10d10+150"),
+                new LootPackEntry(true, Gold, 100.00, "5d10+75"), // Default gold: 10d10+150
                 new LootPackEntry(false, AosMagicItemsRichType1, 20.00, 1, 4, 0, 40),
                 new LootPackEntry(false, AosMagicItemsRichType1, 10.00, 1, 5, 0, 60),
                 new LootPackEntry(false, AosMagicItemsRichType2, 1.00, 1, 5, 0, 90),
@@ -373,7 +373,7 @@ namespace Server
 
         public static readonly LootPack AosFilthyRich = new(
             [
-                new LootPackEntry(true, Gold, 100.00, "2d100+200"),
+                new LootPackEntry(true, Gold, 100.00, "1d100+100"), // Default gold: 2d100+200
                 new LootPackEntry(false, AosMagicItemsFilthyRichType1, 33.00, 1, 4, 0, 50),
                 new LootPackEntry(false, AosMagicItemsFilthyRichType1, 33.00, 1, 4, 0, 60),
                 new LootPackEntry(false, AosMagicItemsFilthyRichType2, 20.00, 1, 5, 0, 75),
@@ -384,7 +384,7 @@ namespace Server
 
         public static readonly LootPack AosUltraRich = new(
             [
-                new LootPackEntry(true, Gold, 100.00, "5d100+500"),
+                new LootPackEntry(true, Gold, 100.00, "3d100+225"), // Default gold: 5d100+500
                 new LootPackEntry(false, AosMagicItemsUltraRich, 100.00, 1, 5, 25, 100),
                 new LootPackEntry(false, AosMagicItemsUltraRich, 100.00, 1, 5, 25, 100),
                 new LootPackEntry(false, AosMagicItemsUltraRich, 100.00, 1, 5, 25, 100),
@@ -397,7 +397,7 @@ namespace Server
 
         public static readonly LootPack AosSuperBoss = new(
             [
-                new LootPackEntry(true, Gold, 100.00, "5d100+500"),
+                new LootPackEntry(true, Gold, 100.00, "3d100+225"), // Default gold: 5d100+500
                 new LootPackEntry(false, AosMagicItemsUltraRich, 100.00, 1, 5, 25, 100),
                 new LootPackEntry(false, AosMagicItemsUltraRich, 100.00, 1, 5, 25, 100),
                 new LootPackEntry(false, AosMagicItemsUltraRich, 100.00, 1, 5, 25, 100),
@@ -414,14 +414,14 @@ namespace Server
 
         public static readonly LootPack OldPoor = new(
             [
-                new LootPackEntry(true, Gold, 100.00, "1d25"),
+                new LootPackEntry(true, Gold, 100.00, "1d25"), // Default gold unchanged
                 new LootPackEntry(false, Instruments, 0.02, 1)
             ]
         );
 
         public static readonly LootPack OldMeager = new(
             [
-                new LootPackEntry(true, Gold, 100.00, "5d10+25"),
+                new LootPackEntry(true, Gold, 100.00, "3d10+23"), // Default gold: 5d10+25
                 new LootPackEntry(false, Instruments, 0.10, 1),
                 new LootPackEntry(false, OldMagicItems, 1.00, 1, 1, 0, 60),
                 new LootPackEntry(false, OldMagicItems, 0.20, 1, 1, 10, 70)
@@ -430,7 +430,7 @@ namespace Server
 
         public static readonly LootPack OldAverage = new(
             [
-                new LootPackEntry(true, Gold, 100.00, "10d10+50"),
+                new LootPackEntry(true, Gold, 100.00, "5d10+25"), // Default gold: 10d10+50
                 new LootPackEntry(false, Instruments, 0.40, 1),
                 new LootPackEntry(false, OldMagicItems, 5.00, 1, 1, 20, 80),
                 new LootPackEntry(false, OldMagicItems, 2.00, 1, 1, 30, 90),
@@ -440,7 +440,7 @@ namespace Server
 
         public static readonly LootPack OldRich = new(
             [
-                new LootPackEntry(true, Gold, 100.00, "10d10+250"),
+                new LootPackEntry(true, Gold, 100.00, "5d10+125"), // Default gold: 10d10+250
                 new LootPackEntry(false, Instruments, 1.00, 1),
                 new LootPackEntry(false, OldMagicItems, 20.00, 1, 1, 60, 100),
                 new LootPackEntry(false, OldMagicItems, 10.00, 1, 1, 65, 100),
@@ -450,7 +450,7 @@ namespace Server
 
         public static readonly LootPack OldFilthyRich = new(
             [
-                new LootPackEntry(true, Gold, 100.00, "2d125+400"),
+                new LootPackEntry(true, Gold, 100.00, "1d125+200"), // Default gold: 2d125+400
                 new LootPackEntry(false, Instruments, 2.00, 1),
                 new LootPackEntry(false, OldMagicItems, 33.00, 1, 1, 50, 100),
                 new LootPackEntry(false, OldMagicItems, 33.00, 1, 1, 60, 100),
@@ -461,7 +461,7 @@ namespace Server
 
         public static readonly LootPack OldUltraRich = new(
             [
-                new LootPackEntry(true, Gold, 100.00, "5d100+500"),
+                new LootPackEntry(true, Gold, 100.00, "3d100+225"), // Default gold: 5d100+500
                 new LootPackEntry(false, Instruments, 2.00, 1),
                 new LootPackEntry(false, OldMagicItems, 100.00, 1, 1, 40, 100),
                 new LootPackEntry(false, OldMagicItems, 100.00, 1, 1, 40, 100),
@@ -474,7 +474,7 @@ namespace Server
 
         public static readonly LootPack OldSuperBoss = new(
             [
-                new LootPackEntry(true, Gold, 100.00, "5d100+500"),
+                new LootPackEntry(true, Gold, 100.00, "3d100+225"), // Default gold: 5d100+500
                 new LootPackEntry(false, Instruments, 2.00, 1),
                 new LootPackEntry(false, OldMagicItems, 100.00, 1, 1, 40, 100),
                 new LootPackEntry(false, OldMagicItems, 100.00, 1, 1, 40, 100),

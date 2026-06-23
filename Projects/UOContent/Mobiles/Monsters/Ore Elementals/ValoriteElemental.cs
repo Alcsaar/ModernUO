@@ -59,7 +59,7 @@ namespace Server.Mobiles
         public override void GenerateLoot()
         {
             AddLoot(LootPack.FilthyRich);
-            AddLoot(LootPack.Gems, 4);
+            AddLoot(LootPack.Gems, 2); // Default gems: 4
         }
 
         public override void AlterMeleeDamageFrom(Mobile from, ref int damage)

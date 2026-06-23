@@ -83,7 +83,7 @@ public partial class Serado : BaseChampion
     {
         AddLoot(LootPack.UltraRich, 4);
         AddLoot(LootPack.FilthyRich);
-        AddLoot(LootPack.Gems, 6);
+        AddLoot(LootPack.Gems, 3); // Default gems: 6
     }
 
     // TODO: Hit Lightning Area

@@ -62,7 +62,7 @@ namespace Server.Mobiles
         public override void GenerateLoot()
         {
             AddLoot(LootPack.FilthyRich, 3);
-            AddLoot(LootPack.Gems, 5);
+            AddLoot(LootPack.Gems, 3); // Default gems: 5
         }
 
         public override int GetIdleSound() => 0x2D3;

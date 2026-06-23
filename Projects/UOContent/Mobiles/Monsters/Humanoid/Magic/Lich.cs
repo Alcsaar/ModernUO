@@ -60,6 +60,7 @@ namespace Server.Mobiles
         public override void GenerateLoot()
         {
             AddLoot(LootPack.Rich);
+            AddLoot(LootPack.Meager); // Default loot: Rich only
             AddLoot(LootPack.MedScrolls, 2);
         }
     }

@@ -64,7 +64,7 @@ namespace Server.Mobiles
         public override void GenerateLoot()
         {
             AddLoot(LootPack.FilthyRich, 2);
-            AddLoot(LootPack.Gems, 8);
+            AddLoot(LootPack.Gems, 4); // Default gems: 8
         }
     }
 }

@@ -126,26 +126,26 @@ namespace Server.Mobiles
         {
             var price = deed switch
             {
-                SmallBrickHouseDeed           => 43800,
-                StonePlasterHouseDeed         => 43800,
-                FieldStoneHouseDeed           => 43800,
-                WoodHouseDeed                 => 43800,
-                WoodPlasterHouseDeed          => 43800,
-                ThatchedRoofCottageDeed       => 43800,
-                BrickHouseDeed                => 144500,
-                TwoStoryWoodPlasterHouseDeed  => 192400,
-                TwoStoryStonePlasterHouseDeed => 192400,
-                TowerDeed                     => 433200,
-                KeepDeed                      => 665200,
-                CastleDeed                    => 1022800,
-                LargePatioDeed                => 152800,
-                LargeMarbleDeed               => 192800,
-                SmallTowerDeed                => 88500,
-                LogCabinDeed                  => 97800,
-                SandstonePatioDeed            => 90900,
-                VillaDeed                     => 136500,
-                StoneWorkshopDeed             => 60600,
-                MarbleWorkshopDeed            => 60300,
+                SmallBrickHouseDeed           => 109500,  // Default price: 43800
+                StonePlasterHouseDeed         => 109500,  // Default price: 43800
+                FieldStoneHouseDeed           => 109500,  // Default price: 43800
+                WoodHouseDeed                 => 109500,  // Default price: 43800
+                WoodPlasterHouseDeed          => 109500,  // Default price: 43800
+                ThatchedRoofCottageDeed       => 109500,  // Default price: 43800
+                BrickHouseDeed                => 361250,  // Default price: 144500
+                TwoStoryWoodPlasterHouseDeed  => 481000,  // Default price: 192400
+                TwoStoryStonePlasterHouseDeed => 481000,  // Default price: 192400
+                TowerDeed                     => 1083000, // Default price: 433200
+                KeepDeed                      => 1750000, // Default price: 665200
+                CastleDeed                    => 3000000, // Default price: 1022800
+                LargePatioDeed                => 382000,  // Default price: 152800
+                LargeMarbleDeed               => 480000,  // Default price: 192000
+                SmallTowerDeed                => 221250,  // Default price: 88500
+                LogCabinDeed                  => 244500,  // Default price: 97800
+                SandstonePatioDeed            => 227250,  // Default price: 90900
+                VillaDeed                     => 341250,  // Default price: 136500
+                StoneWorkshopDeed             => 151500,  // Default price: 60600
+                MarbleWorkshopDeed            => 157500,  // Default price: 63000
                 _                             => 0
             };
 

@@ -1,5 +1,28 @@
 # Unreleased Changes
 
+## 2026-06-23
+
+### Economy Balance
+
+#### Player-Facing
+- Architect-sold house deeds now cost roughly 2.5x their previous default price, with small houses landing around 109,500 gold, keeps at 1,750,000 gold, and castles at 3,000,000 gold.
+- Architects now sell the two-story stone-and-plaster house deed alongside the existing two-story wood-and-plaster deed.
+- Monster gold drops from standard loot packs have been reduced, leaving the poorest loot tier unchanged, reducing meager loot by about 25%, and reducing average through boss-tier loot by about 50%.
+- Lich gold has been lightly raised after the broader loot-pack reduction so its average gold better matches its creature difficulty threat score.
+- High-volume gem drops from dragon-tier and similar high-end creatures have been reduced while leaving smaller one-off gem drops intact.
+- Treasure map, SOS, camp, and high-end dungeon treasure chest gold have been reduced by about 25%, with treasure-map-style chests now rolling a variable gold amount instead of dropping a fixed amount per level.
+
+#### Dev-Facing
+- Updated architect buy prices and real-estate broker appraisals together, preserving default deed prices as inline comments beside the new values.
+- Normalized real-estate broker appraisal values for marble house with patio and small marble workshop to match the architect deed table before applying the balance pass.
+- Updated `LootPack` gold dice values across SE, AOS, ML, and old-era pack definitions while preserving each default gold expression in inline comments.
+- Added a supplemental `Meager` loot pack to liches, preserving the default `Rich`-only loot composition as an inline comment.
+- Reduced repeated `LootPack.Gems` counts on dragons, wyrms, Yamandon/Serado, Hiryu variants, and Valorite Elemental, preserving default gem counts as inline comments.
+- Reduced `TreasureMapChest.Fill` gold to a variable 70%-80% of the default fixed value and `BaseTreasureChest` level 5/6 gold ranges to 75% of their defaults, preserving the default values as inline comments.
+
+#### Verification
+- `dotnet build` passed with 0 warnings and 0 errors.
+
 ## 2026-06-18
 
 ### Township System Core

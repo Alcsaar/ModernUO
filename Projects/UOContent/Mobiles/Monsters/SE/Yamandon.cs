@@ -64,7 +64,7 @@ namespace Server.Mobiles
         {
             AddLoot(LootPack.UltraRich);
             AddLoot(LootPack.FilthyRich, 2);
-            AddLoot(LootPack.Gems, 6);
+            AddLoot(LootPack.Gems, 3); // Default gems: 6
         }
 
         public override void OnDamagedBySpell(Mobile attacker, int damage)
