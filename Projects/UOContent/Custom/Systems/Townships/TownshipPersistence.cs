@@ -15,7 +15,7 @@ public sealed class TownshipPersistence : GenericPersistence
 
     public override void Serialize(IGenericWriter writer)
     {
-        writer.WriteEncodedInt(10);
+        writer.WriteEncodedInt(11);
         TownshipService.Serialize(writer);
     }
 
@@ -23,7 +23,7 @@ public sealed class TownshipPersistence : GenericPersistence
     {
         var version = reader.ReadEncodedInt();
 
-        if (version is >= 0 and <= 10)
+        if (version is >= 0 and <= 11)
         {
             TownshipService.Deserialize(reader, version);
         }

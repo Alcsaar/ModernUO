@@ -59,6 +59,8 @@ public static class TownshipCommands
         CommandSystem.Register("TSTestTreasury", AccessLevel.GameMaster, TownshipTestTreasury_OnCommand);
         CommandSystem.Register("TownshipTestService", AccessLevel.GameMaster, TownshipTestService_OnCommand);
         CommandSystem.Register("TSTestService", AccessLevel.GameMaster, TownshipTestService_OnCommand);
+        CommandSystem.Register("TownshipSpawnTownsfolk", AccessLevel.GameMaster, TownshipSpawnTownsfolk_OnCommand);
+        CommandSystem.Register("TSSpawnTownsfolk", AccessLevel.GameMaster, TownshipSpawnTownsfolk_OnCommand);
     }
 
     [Usage("Township")]
@@ -251,6 +253,30 @@ public static class TownshipCommands
         }
 
         e.Mobile.SendMessage(0x35, $"Added placeholder service '{name}' to {township.Name}.");
+    }
+
+    [Usage("TSSpawnTownsfolk [count=1]")]
+    [Description("Spawns ambient townsfolk in the township you are standing in for testing.")]
+    private static void TownshipSpawnTownsfolk_OnCommand(CommandEventArgs e)
+    {
+        var township = TownshipService.FindAt(e.Mobile.Location, e.Mobile.Map);
+
+        if (township == null)
+        {
+            e.Mobile.SendMessage(0x22, "You are not standing in claimed township land.");
+            return;
+        }
+
+        var max = Math.Max(1, TownshipSettings.MaxAmbientTownsfolk);
+        var count = e.Length > 0 ? Math.Clamp(e.GetInt32(0), 1, max) : 1;
+
+        if (!TownshipService.SpawnAmbientTownsfolk(township, count, out var spawned, out var reason))
+        {
+            e.Mobile.SendMessage(0x22, reason);
+            return;
+        }
+
+        e.Mobile.SendMessage(0x35, $"Spawned {spawned:N0} ambient townsfolk in {township.Name}.");
     }
 
     private static int GetActivityThreshold(TownshipActivityLevel level) => level switch

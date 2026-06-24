@@ -22,6 +22,7 @@ public static class TownshipService
     public const int MaxTownshipNpcRoamRange = 12;
     public const string FeatureFlagKey = "townships";
     private const int MilitiaPatrolHomeRange = 12;
+    private const int TownshipSpawnLocationAttempts = 60;
 
     private static readonly ILogger Logger = LogFactory.GetLogger(typeof(TownshipService));
     private static readonly List<TownshipState> _townships = new();
@@ -1016,6 +1017,275 @@ public static class TownshipService
         }
     }
 
+    public static bool SpawnAmbientTownsfolk(
+        TownshipState township,
+        int count,
+        out int spawned,
+        out string reason
+    )
+    {
+        spawned = 0;
+        reason = null;
+
+        if (township == null)
+        {
+            reason = "No township was found.";
+            return false;
+        }
+
+        if (!TownshipSettings.AmbientTownsfolkEnabled)
+        {
+            reason = "Ambient township townsfolk are disabled.";
+            return false;
+        }
+
+        PruneAmbientTownsfolk(township);
+
+        var targetCount = GetAmbientTownsfolkTargetCount(township);
+        var remaining = Math.Max(0, targetCount - CountAmbientTownsfolk(township));
+        count = Math.Clamp(count, 1, Math.Max(1, remaining));
+
+        if (remaining <= 0)
+        {
+            reason = "This township already has its maximum ambient townsfolk.";
+            return false;
+        }
+
+        for (var i = 0; i < count && spawned < remaining; i++)
+        {
+            if (!TrySpawnAmbientTownsfolk(township))
+            {
+                break;
+            }
+
+            spawned++;
+        }
+
+        if (spawned == 0)
+        {
+            reason = "No valid township spawn location was found.";
+            return false;
+        }
+
+        return true;
+    }
+
+    private static void MaintainAmbientTownsfolk(TownshipState township)
+    {
+        if (township == null)
+        {
+            return;
+        }
+
+        if (!TownshipSettings.AmbientTownsfolkEnabled)
+        {
+            DeleteAmbientTownsfolk(township);
+            return;
+        }
+
+        PruneAmbientTownsfolk(township);
+
+        var targetCount = GetAmbientTownsfolkTargetCount(township);
+
+        while (CountAmbientTownsfolk(township) > targetCount)
+        {
+            if (!DeleteLastIdleAmbientTownsfolk(township))
+            {
+                break;
+            }
+        }
+
+        if (targetCount <= 0 || CountAmbientTownsfolk(township) >= targetCount)
+        {
+            ScheduleNextAmbientTownsfolkSpawn(township);
+            return;
+        }
+
+        if (township.NextAmbientTownsfolkSpawn > Core.Now)
+        {
+            return;
+        }
+
+        ScheduleNextAmbientTownsfolkSpawn(township);
+
+        if (Utility.Random(100) >= TownshipSettings.AmbientTownsfolkSpawnChancePercent)
+        {
+            return;
+        }
+
+        TrySpawnAmbientTownsfolk(township);
+    }
+
+    private static bool TrySpawnAmbientTownsfolk(TownshipState township)
+    {
+        if (!TryGetRandomTownshipSpawnLocation(township, out var location))
+        {
+            return false;
+        }
+
+        var townsfolk = CreateAmbientTownsfolk();
+
+        if (townsfolk == null)
+        {
+            return false;
+        }
+
+        PrepareAmbientTownsfolk(townsfolk, location);
+        townsfolk.MoveToWorld(location, township.Map);
+        township.AmbientTownsfolkSerials.Add(townsfolk.Serial);
+        return true;
+    }
+
+    private static BaseCreature CreateAmbientTownsfolk() =>
+        Utility.Random(9) switch
+        {
+            0 => new Peasant(),
+            1 => new BrideGroom(),
+            2 => new Gypsy(),
+            3 => new Merchant(),
+            4 => new Actor(),
+            5 => new Artist(),
+            6 => new Noble(),
+            7 => new Messenger(),
+            _ => new SeekerOfAdventure()
+        };
+
+    private static void PrepareAmbientTownsfolk(BaseCreature townsfolk, Point3D home)
+    {
+        /* BEGIN CUSTOM TOWNSHIPS: ambient townsfolk are flavor spawns, not paid services or loot sources. */
+        townsfolk.Blessed = false;
+        townsfolk.YellowHealthbar = false;
+        townsfolk.Home = home;
+        townsfolk.RangeHome = TownshipSettings.AmbientTownsfolkRoamRange;
+        townsfolk.CantWalk = TownshipSettings.AmbientTownsfolkRoamRange <= 0;
+
+        var pack = townsfolk.Backpack;
+
+        if (pack != null)
+        {
+            for (var i = pack.Items.Count - 1; i >= 0; i--)
+            {
+                if (i < pack.Items.Count)
+                {
+                    pack.Items[i].Delete();
+                }
+            }
+        }
+        /* END CUSTOM TOWNSHIPS */
+    }
+
+    private static int CountAmbientTownsfolk(TownshipState township)
+    {
+        var count = 0;
+
+        for (var i = township.AmbientTownsfolkSerials.Count - 1; i >= 0; i--)
+        {
+            if (World.FindMobile(township.AmbientTownsfolkSerials[i]) is BaseCreature townsfolk &&
+                !townsfolk.Deleted &&
+                townsfolk.Map == township.Map &&
+                Contains(township, townsfolk.X, townsfolk.Y))
+            {
+                count++;
+            }
+        }
+
+        return count;
+    }
+
+    private static int GetAmbientTownsfolkTargetCount(TownshipState township)
+    {
+        var activityTarget = township.ActivityLevel switch
+        {
+            TownshipActivityLevel.City    => 5,
+            TownshipActivityLevel.Town    => 4,
+            TownshipActivityLevel.Village => 3,
+            TownshipActivityLevel.Hamlet  => 2,
+            _                             => 1
+        };
+
+        return Math.Min(activityTarget, TownshipSettings.MaxAmbientTownsfolk);
+    }
+
+    private static void PruneAmbientTownsfolk(TownshipState township)
+    {
+        for (var i = township.AmbientTownsfolkSerials.Count - 1; i >= 0; i--)
+        {
+            var townsfolk = World.FindMobile(township.AmbientTownsfolkSerials[i]) as BaseCreature;
+
+            if (townsfolk == null || townsfolk.Deleted)
+            {
+                township.AmbientTownsfolkSerials.RemoveAt(i);
+                continue;
+            }
+
+            if (townsfolk.Map == township.Map && Contains(township, townsfolk.X, townsfolk.Y))
+            {
+                continue;
+            }
+
+            if (townsfolk is BaseEscortable escortable && escortable.GetEscorter() != null)
+            {
+                continue;
+            }
+
+            township.AmbientTownsfolkSerials.RemoveAt(i);
+            townsfolk.Delete();
+        }
+    }
+
+    private static bool DeleteLastIdleAmbientTownsfolk(TownshipState township)
+    {
+        for (var i = township.AmbientTownsfolkSerials.Count - 1; i >= 0; i--)
+        {
+            var townsfolk = World.FindMobile(township.AmbientTownsfolkSerials[i]) as BaseCreature;
+
+            if (townsfolk is BaseEscortable escortable && escortable.GetEscorter() != null)
+            {
+                continue;
+            }
+
+            township.AmbientTownsfolkSerials.RemoveAt(i);
+
+            if (townsfolk?.Deleted == false)
+            {
+                townsfolk.Delete();
+            }
+
+            return true;
+        }
+
+        return false;
+    }
+
+    private static void DeleteAmbientTownsfolk(TownshipState township)
+    {
+        if (township == null)
+        {
+            return;
+        }
+
+        for (var i = township.AmbientTownsfolkSerials.Count - 1; i >= 0; i--)
+        {
+            var serial = township.AmbientTownsfolkSerials[i];
+
+            if (World.FindMobile(serial) is BaseCreature townsfolk && !townsfolk.Deleted)
+            {
+                townsfolk.Delete();
+            }
+        }
+
+        township.AmbientTownsfolkSerials.Clear();
+    }
+
+    private static void ScheduleNextAmbientTownsfolkSpawn(TownshipState township)
+    {
+        var interval = TownshipSettings.AmbientTownsfolkSpawnInterval;
+        township.NextAmbientTownsfolkSpawn = Core.Now + TimeSpan.FromSeconds(Utility.RandomMinMax(
+            (int)Math.Max(60, interval.TotalSeconds / 2),
+            (int)Math.Max(60, interval.TotalSeconds * 3 / 2)
+        ));
+    }
+
     private static void DeletePatrolGuards(TownshipState township)
     {
         if (township == null)
@@ -1104,6 +1374,11 @@ public static class TownshipService
 
     private static bool TryGetRandomPatrolLocation(TownshipState township, out Point3D location)
     {
+        return TryGetRandomTownshipSpawnLocation(township, out location);
+    }
+
+    private static bool TryGetRandomTownshipSpawnLocation(TownshipState township, out Point3D location)
+    {
         location = Point3D.Zero;
 
         if (township?.Map == null || township.Map == Map.Internal || township.Claims.Count == 0)
@@ -1111,7 +1386,7 @@ public static class TownshipService
             return false;
         }
 
-        for (var i = 0; i < 50; i++)
+        for (var i = 0; i < TownshipSpawnLocationAttempts; i++)
         {
             var claim = township.Claims[Utility.Random(township.Claims.Count)];
             var x = Utility.RandomMinMax(claim.StartX, claim.EndX);
@@ -2325,6 +2600,7 @@ public static class TownshipService
     {
         NormalizeEnvelopeSize(township);
         NormalizeUpkeepSchedule(township);
+        NormalizeAmbientTownsfolkSchedule(township);
 
         _townships.Add(township);
         _byId[township.Id] = township;
@@ -2342,6 +2618,14 @@ public static class TownshipService
         if (township != null && township.MaxEnvelopeSize <= TownshipSettings.InitialClaimSize)
         {
             township.MaxEnvelopeSize = GetInitialEnvelopeSize(TownshipSettings.EnvelopeSizes);
+        }
+    }
+
+    private static void NormalizeAmbientTownsfolkSchedule(TownshipState township)
+    {
+        if (township != null && township.NextAmbientTownsfolkSpawn == DateTime.MinValue)
+        {
+            ScheduleNextAmbientTownsfolkSpawn(township);
         }
     }
 
@@ -2375,6 +2659,7 @@ public static class TownshipService
             AssessUpkeep(township);
             ProcessDelinquency(township);
             MaintainPatrolGuards(township);
+            MaintainAmbientTownsfolk(township);
         }
     }
 
@@ -2407,6 +2692,7 @@ public static class TownshipService
             }
 
             DeletePatrolGuards(township);
+            DeleteAmbientTownsfolk(township);
         }
         /* END CUSTOM TOWNSHIPS */
     }
@@ -3610,11 +3896,18 @@ public static class TownshipService
         writer.Write(t.PaidServicesSuspended);
         writer.WriteEncodedInt((int)t.HuntingTaxMode);
         writer.WriteEncodedInt(t.HuntingTaxPercent);
+        writer.Write(t.NextAmbientTownsfolkSpawn);
 
         writer.WriteEncodedInt(t.PatrolGuardSerials.Count);
         for (var i = 0; i < t.PatrolGuardSerials.Count; i++)
         {
             writer.Write(t.PatrolGuardSerials[i]);
+        }
+
+        writer.WriteEncodedInt(t.AmbientTownsfolkSerials.Count);
+        for (var i = 0; i < t.AmbientTownsfolkSerials.Count; i++)
+        {
+            writer.Write(t.AmbientTownsfolkSerials[i]);
         }
 
         writer.WriteEncodedInt(t.Claims.Count);
@@ -3735,7 +4028,8 @@ public static class TownshipService
             NextDelinquencyRemoval = version >= 3 ? reader.ReadDateTime() : DateTime.MinValue,
             PaidServicesSuspended = version >= 3 && reader.ReadBool(),
             HuntingTaxMode = version >= 6 ? (TownshipHuntingTaxMode)reader.ReadEncodedInt() : TownshipHuntingTaxMode.OptIn,
-            HuntingTaxPercent = version >= 6 ? reader.ReadEncodedInt() : 0
+            HuntingTaxPercent = version >= 6 ? reader.ReadEncodedInt() : 0,
+            NextAmbientTownsfolkSpawn = version >= 11 ? reader.ReadDateTime() : DateTime.MinValue
         };
 
         if (version >= 7)
@@ -3745,6 +4039,16 @@ public static class TownshipService
             for (var i = 0; i < guardCount; i++)
             {
                 t.PatrolGuardSerials.Add(reader.ReadSerial());
+            }
+        }
+
+        if (version >= 11)
+        {
+            var ambientCount = reader.ReadEncodedInt();
+
+            for (var i = 0; i < ambientCount; i++)
+            {
+                t.AmbientTownsfolkSerials.Add(reader.ReadSerial());
             }
         }
 

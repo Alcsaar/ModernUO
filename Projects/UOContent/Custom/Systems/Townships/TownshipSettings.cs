@@ -56,6 +56,11 @@ public sealed class TownshipConfig
     public int MaxHuntingTaxPercent { get; set; } = 10;
     public int VendorRevenueContributionPercent { get; set; } = 10;
     public int GuardedTownPatrolGuards { get; set; } = 3;
+    public bool AmbientTownsfolkEnabled { get; set; } = true;
+    public int MaxAmbientTownsfolk { get; set; } = 5;
+    public int AmbientTownsfolkSpawnIntervalMinutes { get; set; } = 30;
+    public int AmbientTownsfolkSpawnChancePercent { get; set; } = 35;
+    public int AmbientTownsfolkRoamRange { get; set; } = 10;
     public int[] EnvelopeSizes { get; set; } = [50, 75, 100, 125];
 }
 
@@ -121,6 +126,13 @@ public static class TownshipSettings
     public static int MaxHuntingTaxPercent => Math.Clamp(_config?.MaxHuntingTaxPercent ?? 10, 0, 25);
     public static int VendorRevenueContributionPercent => Math.Clamp(_config?.VendorRevenueContributionPercent ?? 10, 0, 25);
     public static int GuardedTownPatrolGuards => Math.Clamp(_config?.GuardedTownPatrolGuards ?? 3, 0, 10);
+    public static bool AmbientTownsfolkEnabled => _config?.AmbientTownsfolkEnabled != false;
+    public static int MaxAmbientTownsfolk => Math.Clamp(_config?.MaxAmbientTownsfolk ?? 5, 0, 25);
+    public static TimeSpan AmbientTownsfolkSpawnInterval =>
+        TimeSpan.FromMinutes(Math.Clamp(_config?.AmbientTownsfolkSpawnIntervalMinutes ?? 30, 5, 1440));
+    public static int AmbientTownsfolkSpawnChancePercent =>
+        Math.Clamp(_config?.AmbientTownsfolkSpawnChancePercent ?? 35, 0, 100);
+    public static int AmbientTownsfolkRoamRange => Math.Clamp(_config?.AmbientTownsfolkRoamRange ?? 10, 0, 25);
 
     public static int[] EnvelopeSizes
     {
@@ -197,6 +209,11 @@ public static class TownshipSettings
         MaxHuntingTaxPercent = MaxHuntingTaxPercent,
         VendorRevenueContributionPercent = VendorRevenueContributionPercent,
         GuardedTownPatrolGuards = GuardedTownPatrolGuards,
+        AmbientTownsfolkEnabled = AmbientTownsfolkEnabled,
+        MaxAmbientTownsfolk = MaxAmbientTownsfolk,
+        AmbientTownsfolkSpawnIntervalMinutes = (int)AmbientTownsfolkSpawnInterval.TotalMinutes,
+        AmbientTownsfolkSpawnChancePercent = AmbientTownsfolkSpawnChancePercent,
+        AmbientTownsfolkRoamRange = AmbientTownsfolkRoamRange,
         EnvelopeSizes = EnvelopeSizes
     };
 
