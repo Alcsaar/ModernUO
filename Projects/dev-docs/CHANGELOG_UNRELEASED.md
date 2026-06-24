@@ -2,6 +2,21 @@
 
 ## 2026-06-23
 
+### Township Ambient Townsfolk
+
+#### Player-Facing
+- Active townships can now occasionally attract ordinary townsfolk such as peasants, brides/grooms, gypsies, merchants, actors, artists, and escortable travelers.
+- These are regular ambient NPCs and do not display the township ownership tag used by official township service NPCs.
+
+#### Dev-Facing
+- Added configurable township ambient townsfolk spawning with activity-based caps, randomized spawn timing, persisted serial tracking, and township disband cleanup.
+- Ambient townsfolk reuse existing townfolk mobile classes but strip carried pack gold on spawn so the system does not create a new loot faucet.
+- Added `[TownshipSpawnTownsfolk` / `[TSSpawnTownsfolk` staff test commands for forcing ambient townsfolk spawns in the township under the staff member.
+- Bumped township persistence to version 11 for ambient townsfolk serial and next-spawn tracking.
+
+#### Verification
+- `dotnet build` passed with 0 warnings and 0 errors.
+
 ### Economy Balance
 
 #### Player-Facing

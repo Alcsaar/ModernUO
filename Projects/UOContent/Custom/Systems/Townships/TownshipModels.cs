@@ -247,6 +247,8 @@ public sealed class TownshipState
     public TownshipHuntingTaxMode HuntingTaxMode { get; set; }
     public int HuntingTaxPercent { get; set; }
     public List<Serial> PatrolGuardSerials { get; } = new();
+    public List<Serial> AmbientTownsfolkSerials { get; } = new();
+    public DateTime NextAmbientTownsfolkSpawn { get; set; }
     public List<TownshipClaimRange> Claims { get; } = new();
     public List<TownshipHouseRecord> Houses { get; } = new();
     public List<TownshipPaidServiceRecord> Services { get; } = new();
