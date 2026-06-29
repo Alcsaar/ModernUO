@@ -86,5 +86,13 @@ public static class CustomFeatureFlagBootstrap
             "Custom Systems",
             defaultEnabled: true
         );
+
+        CustomFeatureFlagManager.Register(
+            CustomFeatureFlagKeys.VirtueAlignment,
+            "Virtue Alignment",
+            "Player-selected virtue and vice roleplay paths.",
+            "Custom Systems",
+            defaultEnabled: true
+        );
     }
 }

@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Runtime.InteropServices;
 using ModernUO.CodeGeneratedEvents;
 using Server.Collections;
+using Server.Custom.Systems.VirtueAlignment;
 using Server.Logging;
 using Server.Mobiles;
 
@@ -110,7 +111,7 @@ public class VirtueSystem : GenericPersistence
     }
 
     public static VirtueContext GetVirtues(PlayerMobile from) =>
-        from != null && _playerVirtues.TryGetValue(from, out var context) ? context : null;
+        VirtueAlignmentService.StockVirtuesEnabled && from != null && _playerVirtues.TryGetValue(from, out var context) ? context : null;
 
     public static VirtueContext GetOrCreateVirtues(PlayerMobile from)
     {
@@ -228,6 +229,11 @@ public class VirtueSystem : GenericPersistence
 
     public static bool Award(PlayerMobile from, VirtueName virtue, int amount, ref bool gainedPath)
     {
+        if (!VirtueAlignmentService.StockVirtuesEnabled || from == null)
+        {
+            return false;
+        }
+
         var virtues = from.Virtues;
 
         var current = virtues.GetValue((int)virtue);
@@ -283,7 +289,16 @@ public class VirtueSystem : GenericPersistence
 
     public static void AwardVirtue(PlayerMobile pm, VirtueName virtue, int amount)
     {
+        if (!VirtueAlignmentService.StockVirtuesEnabled)
+        {
+            return;
+        }
+
         var virtues = GetOrCreateVirtues(pm);
+        if (virtues == null)
+        {
+            return;
+        }
         if (virtue == VirtueName.Compassion)
         {
             if (virtues.CompassionGains > 0 && Core.Now > virtues.NextCompassionDay)

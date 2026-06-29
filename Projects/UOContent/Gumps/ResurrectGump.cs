@@ -1,4 +1,5 @@
 using System;
+using Server.Custom.Systems.VirtueAlignment;
 using Server.Engines.Virtues;
 using Server.Misc;
 using Server.Mobiles;
@@ -230,6 +231,13 @@ public class ResurrectGump : DynamicGump
                 VirtueLevel.Knight   => AOS.Scale(from.HitsMax, 80),
                 _                    => from.Hits
             };
+
+            /* BEGIN CUSTOM VIRTUE ALIGNMENT: resurrecting another player is a Compassion deed. */
+            if (_healer is PlayerMobile healer && from is PlayerMobile resurrected)
+            {
+                VirtueAlignmentService.RecordPlayerResurrection(healer, resurrected);
+            }
+            /* END CUSTOM VIRTUE ALIGNMENT */
         }
 
         if (from is PlayerMobile player)
