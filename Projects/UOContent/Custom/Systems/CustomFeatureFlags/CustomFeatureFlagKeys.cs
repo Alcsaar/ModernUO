@@ -12,4 +12,5 @@ public static class CustomFeatureFlagKeys
     public const string RareSpawns = "rare_spawns";
     public const string MissionSystem = "mission_system";
     public const string AIIntegration = "ai_integration";
+    public const string VirtueAlignment = "virtue_alignment";
 }

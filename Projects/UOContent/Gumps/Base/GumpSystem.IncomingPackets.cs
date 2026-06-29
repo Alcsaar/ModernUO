@@ -14,6 +14,7 @@
  *************************************************************************/
 
 using Server.Engines.Virtues;
+using Server.Custom.Systems.VirtueAlignment;
 using Server.Exceptions;
 using Server.Mobiles;
 using Server.Network;
@@ -169,6 +170,20 @@ public static partial class GumpSystem
         if (typeId == 461)
         {
             // Virtue gump
+            if (!VirtueAlignmentService.StockVirtuesEnabled)
+            {
+                if (state.Mobile is PlayerMobile player && VirtueAlignmentService.IsEnabled())
+                {
+                    VirtueAlignmentGump.DisplayTo(player);
+                }
+                else
+                {
+                    state.Mobile?.SendMessage(0x22, "The classic virtue system is disabled.");
+                }
+
+                return;
+            }
+
             var switchCount = reader.Remaining >= 4 ? reader.ReadInt32() : 0;
 
             if (buttonId == 1 && switchCount > 0)

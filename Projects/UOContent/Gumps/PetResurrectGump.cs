@@ -1,3 +1,4 @@
+using Server.Custom.Systems.VirtueAlignment;
 using Server.Mobiles;
 using Server.Network;
 
@@ -72,6 +73,13 @@ public class PetResurrectGump : StaticGump<PetResurrectGump>
         _pet.PlaySound(0x214);
         _pet.FixedEffect(0x376A, 10, 16);
         _pet.ResurrectPet();
+
+        /* BEGIN CUSTOM VIRTUE ALIGNMENT: resurrecting another player's pet is a smaller Compassion deed. */
+        if (from is PlayerMobile healer)
+        {
+            VirtueAlignmentService.RecordPetResurrection(healer, _pet);
+        }
+        /* END CUSTOM VIRTUE ALIGNMENT */
 
         var decreaseAmount = from == _pet.ControlMaster ? 0.1 : 0.2;
 

@@ -1,5 +1,58 @@
 # Unreleased Changes
 
+## 2026-06-24
+
+### Virtue Alignment Core
+
+#### Player-Facing
+- Added the first Virtue Alignment slice, allowing players to choose one primary Virtue or Vice and one secondary path from the opposite side.
+- Secondary path selection now excludes the direct counterpart to the chosen primary path, so a character cannot pair a Virtue with its matching Vice or vice versa.
+- Added the Vice paths Cruelty, Vengeance, Deceit, Treachery, Corruption, Cowardice, Greed, and Pride.
+- Reworked the Virtue Alignment gump into a guided flow where players page through path details, choose the displayed path as primary, page through eligible secondary paths, and confirm.
+- Added placeholder space for future perks under path descriptions in both the paging flow and final confirmation view.
+- Updated the confirmation gump to compare Primary and Secondary paths side-by-side with icons and descriptions.
+- Reopening Virtue Alignment after choosing a path now shows the saved two-column summary first, with a Rechoose button for starting a new selection.
+- Added classic virtue symbol art to Virtue Alignment overview, selection, and detail views, with vices using their paired virtue symbol in a corrupted hue.
+- The classic UO virtue gump now opens the custom Virtue Alignment gump while classic virtues are disabled.
+- Virtue Alignment now treats player choice as aspirations rather than a fixed alignment; future deeds can shape the character's expressed Virtue and Vice over time.
+- Resurrecting other players or another player's bonded pet now nudges the character toward Compassion, while being reported for murder now nudges the character toward Cruelty.
+- The Virtue Alignment gump now shows global Conviction progress and rank.
+- Players now receive a system message when their deeds increase or decrease a Virtue/Vice tendency score.
+- Reopening Virtue Alignment from the paperdoll now shows deed balance bars for each Virtue/Vice pair, with the marker drifting toward the side reflected by the player's recorded actions.
+- Centered the paperdoll-opened Virtue Alignment status header, splitting aspiration and expressed alignment onto separate lines and balancing the deed-bar layout.
+- Expressed Virtue/Vice labels now require enough deed-earned tendency before appearing, so aspirations are no longer presented as expressed alignment by themselves.
+- Virtue Alignment status lines now color Virtue names green and Vice names red, and deed balance rows show the net alignment value instead of separate Virtue/Vice totals.
+- Virtue/Vice status colors now use the same green and red text values in both the top summary and the balance rows.
+- Tendency-change messages now use immersive magnitude wording such as faint, minor, moderate, significant, or profound instead of exposing raw point changes.
+- Contradictory deeds now have stronger impact against a heavily established opposing Virtue/Vice balance, making major reversals more disruptive than small drifts near center.
+
+#### Dev-Facing
+- Added `Projects/UOContent/Custom/Systems/VirtueAlignment/` with settings, persistence, commands, selection validation, and a guided DynamicGump-based player UI.
+- Added `[VirtueAlignment`, `[VA`, `[VirtuePath`, and `[VP` player commands plus staff `[VASet` and `[VAClear` commands.
+- Added a `virtue_alignment` custom feature flag and JSON settings under `Distribution/Configuration/VirtueAlignment/`.
+- Gated classic virtue gump, macro, and award entry points behind `StockVirtuesEnabled`, defaulting classic virtues off while preserving old virtue data.
+- Reworked Virtue Alignment persistence and service state around aspirations, action-earned tendency scores, calculated expressed paths, and a future-ready `AwardTendency` hook.
+- Added staff `[VATendency` and `[VAResetTendencies` commands for testing action-driven alignment expression before gameplay hooks are wired.
+- Added global Conviction rank scaffolding, staff `[VAConviction` / `[VAResetConviction` commands, and service helpers for awarding deed-based tendency plus Conviction credit.
+- Hooked player resurrection, other-player pet resurrection, and reported murder into the Virtue Alignment deed recorder.
+- Centralized Virtue/Vice tendency feedback in `AwardTendency` so future deed hooks automatically notify players when a path score changes.
+- Added a saved-state Virtue Alignment status view with all eight Virtue/Vice balance rows using stored tendency scores.
+- Split aspiration and expression summary helpers so the gump can present player intent separately from deed-earned alignment.
+- Added a minimum tendency threshold before a Virtue or Vice is treated as the player's expressed alignment.
+- Counterpart tendency awards now offset the opposing path first, so gaining Cruelty reduces existing Compassion balance before building a separate Cruelty balance.
+- Replaced numeric tendency feedback with qualitative roleplay-facing messaging while preserving the underlying tendency math.
+- Added opposition-shock scaling for counterpart tendency changes and capped stored tendency values at 10,000 per path.
+
+#### Verification
+- `dotnet build` passed with 0 warnings and 0 errors.
+- `dotnet build` passed with 0 warnings and 0 errors after the aspirations/tendencies redesign.
+- `dotnet build` passed with 0 warnings and 0 errors after the first deed hooks and Conviction display.
+- `dotnet build` passed with 0 warnings and 0 errors after adding Virtue/Vice balance bars to the paperdoll-opened alignment gump.
+- `dotnet build` passed with 0 warnings and 0 errors after centering the Virtue Alignment status header and balance rows.
+- `dotnet build` passed with 0 warnings and 0 errors after adding the expressed-alignment tendency threshold.
+- `dotnet build` passed with 0 warnings and 0 errors after adding colored status labels and net Virtue/Vice balance scoring.
+- `dotnet build` passed with 0 warnings and 0 errors after adding opposition-shock scaling and tendency caps.
+
 ## 2026-06-23
 
 ### Township Ambient Townsfolk

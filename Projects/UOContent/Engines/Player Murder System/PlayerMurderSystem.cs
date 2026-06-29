@@ -298,6 +298,9 @@ public class PlayerMurderSystem : GenericPersistence
 
         var wasMurderer = killer.Murderer;
         OnPlayerMurder(pk);
+        /* BEGIN CUSTOM VIRTUE ALIGNMENT: confirmed murder reports are Cruelty deeds. */
+        Server.Custom.Systems.VirtueAlignment.VirtueAlignmentService.RecordReportedMurder(pk, reporter);
+        /* END CUSTOM VIRTUE ALIGNMENT */
         /* BEGIN CUSTOM VIRTUAL ECOLOGY: only named murder reports may enter NPC rumor facts */
         Server.Custom.Systems.VirtualEcology.TownChatterService.RecordReportedMurder(reporter, killer);
         /* END CUSTOM VIRTUAL ECOLOGY */

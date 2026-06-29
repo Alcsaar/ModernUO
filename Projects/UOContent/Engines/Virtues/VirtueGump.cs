@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using Server.Custom.Systems.VirtueAlignment;
 using Server.Gumps;
 using Server.Mobiles;
 using Server.Network;
@@ -43,6 +44,20 @@ public class VirtueGump : DynamicGump
 
     public static void RequestVirtueGump(PlayerMobile beholder, PlayerMobile beheld)
     {
+        if (!VirtueAlignmentService.StockVirtuesEnabled)
+        {
+            if (beholder == beheld && VirtueAlignmentService.IsEnabled())
+            {
+                VirtueAlignmentGump.DisplayTo(beholder);
+            }
+            else
+            {
+                beholder.SendMessage(0x22, "The classic virtue system is disabled.");
+            }
+
+            return;
+        }
+
         if (beholder == beheld && beholder.Murderer)
         {
             beholder.SendLocalizedMessage(1049609); // Murderers cannot invoke this virtue.
@@ -55,6 +70,20 @@ public class VirtueGump : DynamicGump
 
     public static void RequestVirtueItem(PlayerMobile beholder, Mobile beheld, int gumpID)
     {
+        if (!VirtueAlignmentService.StockVirtuesEnabled)
+        {
+            if (beholder == beheld && VirtueAlignmentService.IsEnabled())
+            {
+                VirtueAlignmentGump.DisplayTo(beholder);
+            }
+            else
+            {
+                beholder.SendMessage(0x22, "The classic virtue system is disabled.");
+            }
+
+            return;
+        }
+
         if (beholder != beheld)
         {
             return;
@@ -80,6 +109,20 @@ public class VirtueGump : DynamicGump
 
     public static void RequestVirtueMacro(PlayerMobile beholder, int virtue)
     {
+        if (!VirtueAlignmentService.StockVirtuesEnabled)
+        {
+            if (VirtueAlignmentService.IsEnabled())
+            {
+                VirtueAlignmentGump.DisplayTo(beholder);
+            }
+            else
+            {
+                beholder.SendMessage(0x22, "The classic virtue system is disabled.");
+            }
+
+            return;
+        }
+
         var virtueID = virtue switch
         {
             0 => 107, // Honor
